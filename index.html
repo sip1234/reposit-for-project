@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>工艺智控平台 · 前端原型</title>
+  <title>工艺智控平台</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -23,7 +23,7 @@
       <div class="sidebar-bottom"><span class="avatar">工</span><div><strong>工艺工程师</strong><small>演示空间 · 只读</small></div><span class="dots">···</span></div>
     </aside>
     <div class="command-main">
-      <header class="command-topbar"><div class="breadcrumb">运行中心 <span>/</span> 工艺总览</div><div class="header-actions"><span class="live-pulse"></span><span>演示数据</span><span class="top-divider"></span><span>最近更新 14:32:08</span><button class="icon-button" aria-label="通知">♧<em>2</em></button></div><button class="mobile-route" data-nav="仿真推演">仿真推演 →</button></header>
+      <header class="command-topbar"><div class="breadcrumb">运行中心 <span>/</span> 工艺总览</div><div class="header-actions"><span class="live-pulse"></span><span>演示数据</span><span class="top-divider"></span><span>最近更新 14:32:08</span><button class="icon-button" aria-label="通知">♧<em>2</em></button></div><button class="mobile-route" data-nav="知识文档">知识文档</button><button class="mobile-route" data-nav="仿真推演">仿真推演 →</button></header>
       <div class="command-content">
         <div class="page-heading"><div><div class="eyebrow">PROCESS OVERVIEW / 01</div><h1>工艺运行总览</h1><p>从设备状态到优化建议，掌握当前工艺环节的全貌。</p></div><div class="heading-actions"><span class="outline-badge">● 运行正常</span><button class="button-primary" data-toast="已生成演示版运行报告">导出运行报告 ↗</button></div></div>
         <section class="metric-grid" aria-label="关键指标">
@@ -52,6 +52,40 @@
     </div>
   </main>
 
+  <main id="documents" class="design command-design documents-design" aria-label="知识文档" hidden>
+    <aside class="command-sidebar">
+      <div class="command-brand"><span class="brand-mark">◈</span><span>工艺智控<span class="brand-en">PROCESS INTELLIGENCE</span></span></div>
+      <div class="side-group-label">工作空间</div>
+      <nav class="command-nav" aria-label="工作空间导航">
+        <button data-nav="工艺总览"><span>▦</span> 工艺总览</button>
+        <button data-nav="运行分析"><span>⌁</span> 运行分析</button>
+        <button data-nav="仿真推演"><span>◫</span> 仿真推演</button>
+        <button data-nav="优化任务"><span>◇</span> 优化任务</button>
+        <button data-nav="AI 助手"><span>✳</span> AI 助手</button>
+      </nav>
+      <div class="side-group-label secondary">资源管理</div>
+      <nav class="command-nav" aria-label="资源管理"><button data-nav="设备档案"><span>▤</span> 设备档案</button><button class="active" data-nav="知识文档"><span>▧</span> 知识文档</button></nav>
+      <div class="sidebar-bottom"><span class="avatar">工</span><div><strong>工艺工程师</strong><small>本地文档空间</small></div><span class="dots">···</span></div>
+    </aside>
+    <div class="command-main">
+      <header class="command-topbar"><div class="breadcrumb">资源管理 <span>/</span> 知识文档</div><div class="header-actions"><span class="live-pulse"></span><span>本地存储</span><span class="top-divider"></span><span id="documents-service-status">正在连接服务</span></div><button class="mobile-route" data-nav="工艺总览">← 工艺总览</button></header>
+      <div class="command-content documents-content">
+        <div class="page-heading"><div><div class="eyebrow">KNOWLEDGE DOCUMENTS / 02</div><h1>知识文档</h1><p>集中保存工艺资料原件。上传后可在本机检索记录并下载原件。</p></div><div class="heading-actions"><button class="button-primary" id="choose-files">＋ 上传文档</button><input id="document-files" type="file" multiple accept=".doc,.docx,.txt,.pdf,.xls,.xlsx,.ppt,.pptx,.csv,.rtf,.odt,.ods,.odp" hidden></div></div>
+        <div id="documents-service-message" class="documents-service-message" hidden></div>
+        <section class="dark-panel upload-panel" aria-labelledby="upload-heading">
+          <div class="panel-head"><div><span class="panel-kicker">01 / UPLOAD</span><h2 id="upload-heading">上传原始文件</h2></div><span class="upload-limit">单文件最大 10 GiB · 支持续传</span></div>
+          <div id="document-dropzone" class="document-dropzone" role="button" tabindex="0" aria-label="选择或拖放文档上传"><span class="drop-icon">⇧</span><strong>将文档拖到这里，或点击选择文件</strong><span>Word、PDF、TXT、Excel、PPT、CSV、RTF、OpenDocument</span></div>
+          <div id="upload-queue" class="upload-queue" aria-live="polite"></div>
+        </section>
+        <section class="dark-panel documents-library" aria-labelledby="library-heading">
+          <div class="panel-head"><div><span class="panel-kicker">02 / LIBRARY</span><h2 id="library-heading">文件列表 <span id="document-count" class="document-count">0</span></h2></div><button class="subtle-button" id="refresh-documents">刷新列表 ↻</button></div>
+          <div class="document-toolbar"><label class="document-search"><span>⌕</span><input id="document-search" type="search" placeholder="搜索文件名" aria-label="搜索文件名"></label><span id="documents-summary">原始文件保存在本机数据目录</span></div>
+          <div class="document-table-wrap"><table class="document-table"><thead><tr><th>文件名称</th><th>大小</th><th>上传时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="document-rows"><tr><td colspan="5" class="document-empty">正在加载文件…</td></tr></tbody></table></div><div class="document-more"><button id="load-more-documents" class="subtle-button" hidden>加载更多文件 ↓</button></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
   <main id="studio" class="design studio-design" aria-label="仿真推演" hidden>
     <aside class="studio-rail"><div class="studio-logo">◈</div><nav aria-label="仿真方案导航"><button class="rail-active" aria-label="仿真推演" data-nav="仿真推演">◫</button><button aria-label="工艺总览" data-nav="工艺总览">▦</button><button aria-label="趋势分析" data-nav="趋势分析">⌁</button><button aria-label="优化记录" data-nav="优化记录">◇</button><button aria-label="AI 助手" data-nav="AI 助手">✳</button></nav><div class="rail-bottom">工</div></aside>
     <div class="studio-shell"><header class="studio-header"><div><span class="studio-breadcrumb">数字孪生 <span> / </span> 仿真推演</span><h1>参数推演工作室 <span class="version-tag">V 0.1</span></h1></div><div class="studio-header-right"><span class="studio-mode">◌ 模拟环境</span><button class="studio-share" data-toast="方案链接为演示功能">分享方案 ↗</button></div><button class="mobile-route" data-nav="工艺总览">← 工艺总览</button></header>
@@ -63,6 +97,8 @@
 
   <div id="equipment-modal" class="modal-backdrop" hidden><div class="equipment-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button id="modal-close" class="modal-close" aria-label="关闭">×</button><div class="modal-overline">EQUIPMENT DETAILS / 演示数据</div><h2 id="modal-title">设备详情</h2><p id="modal-description"></p><div class="modal-data"><span>当前状态 <strong id="modal-status">运行正常</strong></span><span>数据来源 <strong>模拟数据</strong></span><span>更新时间 <strong>14:32:08</strong></span></div><button id="modal-done" class="modal-done">返回页面</button></div></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/tus.min.js"></script>
   <script src="app.js"></script>
+  <script src="documents.js"></script>
 </body>
 </html>

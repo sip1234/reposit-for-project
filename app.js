@@ -1,4 +1,4 @@
-const pages = ['command', 'studio'];
+const pages = ['command', 'studio', 'documents'];
 const equipment = {
   '原水池': { description: '原水池液位保持稳定，当前示例测点为液位 78.2%。', status: '运行正常' },
   '提升泵': { description: '提升泵当前示例流量为 42.8 m³/h；2 号泵有待巡检提醒。', status: '运行中 · 待巡检' },
@@ -16,6 +16,7 @@ function selectPage(pageName) {
     page.classList.toggle('active', active);
   }
   document.body.dataset.page = pageName;
+  if (pageName === 'documents') window.dispatchEvent(new Event('documents:open'));
   history.replaceState(null, '', `#${pageName}`);
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -40,6 +41,7 @@ document.querySelectorAll('[data-nav]').forEach(button => button.addEventListene
   const label = button.dataset.nav;
   if (label === '仿真推演') selectPage('studio');
   else if (label === '工艺总览') selectPage('command');
+  else if (label === '知识文档') selectPage('documents');
   else showToast(`${label}模块在当前原型中展示为导航入口`);
 }));
 

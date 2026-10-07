@@ -1,3 +1,5 @@
 .preview-profile*/
 preview-*.png
 Thumbs.db
+.env
+node_modules/

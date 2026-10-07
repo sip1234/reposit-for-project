@@ -1,0 +1,13 @@
+{
+  "name": "process-intelligence-demo",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "start": "node server/index.js",
+    "check": "node --check server/index.js && node --check app.js && node --check documents.js"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "tus-js-client": "^4.3.1"
+  }
+}

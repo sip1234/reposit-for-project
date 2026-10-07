@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: documents
+      POSTGRES_USER: documents
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/start.ps1 first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documents -d documents"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    user: "1000:1000"
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
+      HOOK_TOKEN: ${HOOK_TOKEN:?Run scripts/start.ps1 first}
+      DATA_ROOT: /data
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ${DATA_DIR:-../dachuang-data}:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  tusd:
+    image: ghcr.io/tus/tusd:v2.9.2
+    restart: unless-stopped
+    command:
+      - -host=0.0.0.0
+      - -port=1080
+      - -base-path=/files/
+      - -upload-dir=/data/uploads
+      - -max-size=10737418240
+      - -disable-download
+      - -disable-termination
+      - -disable-concatenation
+      - -hooks-enabled-events=pre-create,post-create,post-finish
+      - -hooks-http=http://api:3000/internal/tusd-hook?token=${HOOK_TOKEN}
+      - -cors-allow-origin=^http://(localhost|127\.0\.0\.1):3000$
+    ports:
+      - "127.0.0.1:1080:1080"
+    volumes:
+      - ${DATA_DIR:-../dachuang-data}:/data
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
