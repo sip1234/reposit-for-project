@@ -106,7 +106,7 @@
     const control = document.createElement('button'); control.type = 'button'; control.textContent = '暂停';
     bottom.append(detail, control);
     row.append(top, track, bottom); queue.prepend(row);
-    return { state, fill, detail, control };
+    return { row, state, fill, detail, control };
   }
 
   function addFiles(files) {
@@ -149,7 +149,10 @@
           ui.detail.textContent = '正在校验并保存原件';
           ui.control.remove();
           refresh();
-          setTimeout(refresh, 2000);
+          setTimeout(() => {
+            ui.row.remove();
+            refresh();
+          }, 5000);
         }
       });
       let mode = 'uploading';
