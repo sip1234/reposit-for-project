@@ -7,10 +7,14 @@
   const dropzone = document.getElementById('document-dropzone');
   const serviceStatus = document.getElementById('documents-service-status');
   const serviceMessage = document.getElementById('documents-service-message');
+  const previewModal = document.getElementById('document-preview');
+  const previewBody = document.getElementById('document-preview-body');
   let records = [];
   let loaded = false;
   let nextCursor = null;
   let searchTimer;
+  let previewToken = 0;
+  let previewOpener;
 
   function bytes(size) {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GiB`;
@@ -82,14 +86,69 @@
       status.append(badge);
       const action = document.createElement('td');
       if (item.status === 'ready') {
+        const preview = document.createElement('button');
+        preview.type = 'button';
+        preview.className = 'document-preview-button';
+        preview.textContent = '预览';
+        preview.addEventListener('click', () => openPreview(item, preview));
         const link = document.createElement('a');
         link.href = `/api/documents/${encodeURIComponent(item.id)}/download`;
         link.textContent = '下载原件 ↗';
         link.className = 'document-download';
-        action.append(link);
+        action.append(preview, link);
       } else action.textContent = '—';
       row.append(name, size, date, status, action);
       listBody.append(row);
+    }
+  }
+
+  function closePreview() {
+    previewToken++;
+    previewModal.hidden = true;
+    previewBody.replaceChildren();
+    previewOpener?.focus();
+  }
+
+  async function openPreview(item, opener) {
+    const token = ++previewToken;
+    previewOpener = opener;
+    previewModal.hidden = false;
+    document.getElementById('document-preview-name').textContent = item.filename;
+    document.getElementById('document-preview-download').href = `/api/documents/${encodeURIComponent(item.id)}/download`;
+    previewBody.textContent = '正在准备预览…';
+    document.getElementById('document-preview-close').focus();
+    try {
+      const response = await fetch(`/api/documents/${encodeURIComponent(item.id)}/preview`, { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '预览失败');
+      if (token !== previewToken) return;
+      previewBody.replaceChildren();
+      if (data.kind === 'pdf') {
+        const frame = document.createElement('iframe');
+        frame.className = 'document-preview-frame';
+        frame.title = `${item.filename} 的内容预览`;
+        frame.src = data.url;
+        previewBody.append(frame);
+      } else if (data.kind === 'text') {
+        const textResponse = await fetch(data.url, { cache: 'no-store' });
+        if (!textResponse.ok) throw new Error('无法读取文本内容');
+        const content = await textResponse.text();
+        if (token !== previewToken) return;
+        if (data.truncated) {
+          const notice = document.createElement('p');
+          notice.className = 'document-preview-notice';
+          notice.textContent = '文件较大，这里显示前 5 MiB；下载原件可查看全部内容。';
+          previewBody.append(notice);
+        }
+        const pre = document.createElement('pre');
+        pre.className = 'document-preview-text';
+        pre.textContent = content;
+        previewBody.append(pre);
+      } else {
+        previewBody.textContent = data.message || '此文件暂时无法预览，请下载原件查看。';
+      }
+    } catch (error) {
+      if (token === previewToken) previewBody.textContent = error.message || '预览失败，请下载原件查看。';
     }
   }
 
@@ -196,6 +255,9 @@
     searchTimer = setTimeout(() => refresh(), 250);
   });
   window.addEventListener('documents:open', () => refresh());
+  document.getElementById('document-preview-close').addEventListener('click', closePreview);
+  previewModal.addEventListener('click', event => { if (event.target === previewModal) closePreview(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !previewModal.hidden) closePreview(); });
   if (location.hash === '#documents') refresh();
   setInterval(() => { if (!document.getElementById('documents').hidden && records.length <= 100) refresh(); }, 10000);
 })();

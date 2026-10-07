@@ -55,6 +55,9 @@ async function run() {
   const downloaded = await fetch(`${api}/api/documents/${id}/download`);
   assert.equal(downloaded.status, 200);
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), data);
+  const preview = await (await fetch(`${api}/api/documents/${id}/preview`)).json();
+  assert.equal(preview.kind, 'text');
+  assert.equal(await (await fetch(`${api}${preview.url}`)).text(), data.toString('utf8'));
   console.log(JSON.stringify({ id, filename, status: document.status, bytes: data.length }));
 }
 

@@ -12,12 +12,15 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 
 首次启动会生成不提交到 Git 的 `.env` 随机凭据、拉取镜像并创建数据目录。打开 [知识文档](http://localhost:3000/#documents)。之后可用 `docker compose up -d` 启动、`docker compose down` 停止；后者不会删除持久数据。修改代码后再次运行启动脚本以重新构建。
 
-文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索和下载原件。当前尚未提取文档正文或构建知识检索索引。
+文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。当前尚未提取文档正文或构建知识检索索引。
+
+PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先显示前 5 MiB；Office 和 OpenDocument 文件由本地 LibreOffice 转为 PDF 预览，转换结果缓存在 `DATA_DIR/previews`，原件不变。Office 文件超过 100 MiB 时请下载原件查看。预览转换可能与原软件排版略有差异。
 
 ### 存储
 
 - tusd 临时上传目录：默认 `../dachuang-data/uploads`。
 - 永久原件目录：默认 `../dachuang-data/raw`，位于 Git 项目之外；不提供删除操作。
+- 预览缓存目录：默认 `../dachuang-data/previews`，可从原件重新生成。
 - PostgreSQL 存放文件名、大小、状态、时间和 SHA-256 等元数据，使用 Docker 命名卷 `dachuang_postgres_data`。
 - 上传服务和页面仅绑定到本机 `127.0.0.1`。云存储接口留到后续阶段。
 
