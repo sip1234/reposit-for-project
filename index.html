@@ -45,9 +45,45 @@
             <section class="dark-panel trend-panel"><div class="panel-head"><div><span class="panel-kicker">02 / REAL-TIME TREND</span><h2>关键指标趋势</h2></div><div class="segmented"><button class="selected" data-period="24小时">24 小时</button><button data-period="7天">7 天</button><button data-period="30天">30 天</button></div></div><div class="chart-legend"><span><i class="legend-blue"></i> 溶解氧 DO</span><span><i class="legend-teal"></i> 目标区间</span><span class="chart-unit">单位：mg/L</span></div><div class="trend-chart dark-chart"><div class="chart-y"><span>3.5</span><span>3.0</span><span>2.5</span><span>2.0</span><span>1.5</span></div><svg viewBox="0 0 780 170" preserveAspectRatio="none" aria-label="溶解氧趋势示意图"><defs><linearGradient id="darkFill" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#5b8cff" stop-opacity=".28"/><stop offset="1" stop-color="#5b8cff" stop-opacity="0"/></linearGradient></defs><path d="M0 92 L60 74 L120 86 L180 62 L240 68 L300 58 L360 75 L420 48 L480 67 L540 44 L600 54 L660 49 L720 62 L780 46 L780 170 L0 170 Z" fill="url(#darkFill)"/><path d="M0 92 L60 74 L120 86 L180 62 L240 68 L300 58 L360 75 L420 48 L480 67 L540 44 L600 54 L660 49 L720 62 L780 46" fill="none" stroke="#6b9bff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M0 80 H780" stroke="#37c9c2" stroke-width="1.5" stroke-dasharray="6 6" opacity=".7"/><circle cx="780" cy="46" r="5" fill="#6b9bff" stroke="#1d2f50" stroke-width="4"/></svg><div class="chart-x"><span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span></div></div></section>
           </div>
           <div class="command-right-stack"><section class="dark-panel alert-panel"><div class="panel-head compact"><div><span class="panel-kicker">ACTIVE ALERTS</span><h2>实时告警</h2></div><span class="count-pill">2</span></div><div class="alert-item"><span class="alert-symbol amber">!</span><div><strong>沉淀池浊度偏高</strong><p>测点 ST-04 · 4.8 NTU</p><small>14:20 · 中优先级</small></div><span class="alert-arrow">↗</span></div><div class="alert-item"><span class="alert-symbol blue">i</span><div><strong>2 号提升泵待巡检</strong><p>设备 P-02 · 维护提醒</p><small>13:45 · 低优先级</small></div><span class="alert-arrow">↗</span></div><button class="panel-link" data-toast="告警中心为演示页面">查看全部告警 →</button></section>
-            <section class="dark-panel ai-panel"><div class="ai-header"><span class="ai-symbol">✳</span><div><strong>工艺 AI 助手</strong><small>知识检索 · 数据查询 · 仿真解释</small></div><span class="ai-online">在线</span></div><div class="ai-message"><span class="tiny-stars">✦</span><p id="command-ai-reply">检测到沉淀池浊度接近预设关注阈值。建议先核对进水负荷与加药记录，再进行仿真评估。</p></div><div class="ai-prompts"><button data-ai="浊度升高的可能原因">浊度升高的原因 ↗</button><button data-ai="调整参数会有什么影响">调整参数的影响 ↗</button></div><div class="ai-input"><input id="command-ai-input" placeholder="询问工艺、数据或操作规程…" aria-label="向 AI 助手提问"><button id="command-ai-send" aria-label="发送问题">↑</button></div><div class="ai-disclaimer">演示回答，仅用于界面参考</div></section>
+            <section class="dark-panel ai-panel"><div class="ai-header"><span class="ai-symbol">✳</span><div><strong>工艺 AI 助手</strong><small>已入库资料问答 · 段落检索</small></div><span class="ai-online">本地</span></div><div class="ai-message"><span class="tiny-stars">✦</span><p id="command-ai-reply">进入 AI 助手，选择知识库后可根据已解析文档提问。</p></div><div class="ai-prompts"><button data-ai="浊度升高的可能原因">浊度升高的原因 ↗</button><button data-ai="调整参数会有什么影响">调整参数的影响 ↗</button></div><div class="ai-input"><input id="command-ai-input" placeholder="输入问题，前往 AI 助手…" aria-label="向 AI 助手提问"><button id="command-ai-send" aria-label="前往 AI 助手">↑</button></div><div class="ai-disclaimer">回答仅基于提问时选中的知识库</div></section>
             <section class="dark-panel task-panel"><div class="panel-head compact"><div><span class="panel-kicker">OPTIMIZATION</span><h2>优化任务</h2></div><span class="task-icon">◇</span></div><div class="task-row"><div><strong>周期性参数评估</strong><small>下次执行 · 明天 09:00</small></div><span class="running-pill">已计划</span></div><div class="task-progress"><span></span></div><div class="task-meta"><span>上一轮改进</span><strong>能耗 −4.2%</strong></div></section></div>
         </div>
+      </div>
+    </div>
+  </main>
+
+  <main id="assistant" class="design command-design documents-design assistant-design" aria-label="AI 助手" hidden>
+    <aside class="command-sidebar">
+      <div class="command-brand"><span class="brand-mark">◈</span><span>工艺智控<span class="brand-en">PROCESS INTELLIGENCE</span></span></div>
+      <div class="side-group-label">工作空间</div>
+      <nav class="command-nav" aria-label="工作空间导航">
+        <button data-nav="工艺总览"><span>▦</span> 工艺总览</button>
+        <button data-nav="运行分析"><span>⌁</span> 运行分析</button>
+        <button data-nav="仿真推演"><span>◫</span> 仿真推演</button>
+        <button data-nav="优化任务"><span>◇</span> 优化任务</button>
+        <button class="active" data-nav="AI 助手"><span>✳</span> AI 助手</button>
+      </nav>
+      <div class="side-group-label secondary">资源管理</div>
+      <nav class="command-nav" aria-label="资源管理"><button data-nav="设备档案"><span>▤</span> 设备档案</button><button data-nav="知识文档"><span>▧</span> 知识文档</button></nav>
+      <div class="sidebar-bottom"><span class="avatar">工</span><div><strong>工艺工程师</strong><small>本地知识空间</small></div><span class="dots">···</span></div>
+    </aside>
+    <div class="command-main">
+      <header class="command-topbar"><div class="breadcrumb">工作空间 <span>/</span> AI 助手</div><div class="header-actions"><span class="live-pulse"></span><span>本地模型</span><span class="top-divider"></span><span>知识库限定检索</span></div><button class="mobile-route" data-nav="知识文档">知识文档</button></header>
+      <div class="command-content documents-content">
+        <div class="page-heading"><div><div class="eyebrow">AI ASSISTANT / 03</div><h1>AI 助手</h1><p>管理可检索的文档集合，并从选中的知识库中获取带出处的回答。</p></div></div>
+        <div class="assistant-tabs" role="tablist" aria-label="AI 助手分页"><button id="assistant-chat-tab" class="active" type="button" role="tab" aria-selected="true" aria-controls="assistant-chat" data-assistant-tab="chat">问答</button><button id="assistant-bases-tab" type="button" role="tab" aria-selected="false" aria-controls="assistant-bases" data-assistant-tab="bases">知识库</button></div>
+        <section id="assistant-chat" class="dark-panel assistant-tab-panel" role="tabpanel" aria-labelledby="assistant-chat-tab">
+          <div class="panel-head"><div><span class="panel-kicker">01 / ASK</span><h2>文档问答</h2></div><span class="upload-limit">可同时调用多个知识库</span></div>
+          <div class="assistant-base-picker"><div class="assistant-section-title"><strong>检索范围</strong><button id="assistant-manage-bases" class="subtle-button" type="button">管理知识库 ↗</button></div><div id="assistant-base-options" class="assistant-base-options">正在加载知识库…</div></div>
+          <form id="knowledge-form" class="knowledge-form"><label for="knowledge-query">输入问题或检索内容</label><div class="knowledge-input-row"><input id="knowledge-query" type="search" maxlength="500" placeholder="例如：开题报告中的研究目标是什么？" required><button class="button-primary" type="submit" name="mode" value="answer">提问</button><button class="subtle-button" type="submit" name="mode" value="search">只检索段落</button></div></form>
+          <div id="knowledge-results" class="knowledge-results" aria-live="polite"><p class="knowledge-hint">先创建知识库并选择已解析文件，然后在上方勾选检索范围。</p></div>
+        </section>
+        <section id="assistant-bases" class="assistant-tab-panel assistant-bases-layout" role="tabpanel" aria-labelledby="assistant-bases-tab" hidden>
+          <div class="dark-panel assistant-base-list-panel"><div class="panel-head"><div><span class="panel-kicker">02 / LIBRARIES</span><h2>知识库列表</h2></div><button id="assistant-new-base" class="subtle-button" type="button">＋ 新建</button></div><div id="assistant-base-list" class="assistant-base-list">正在加载知识库…</div></div>
+          <div class="dark-panel assistant-base-editor-panel"><div class="panel-head"><div><span class="panel-kicker">03 / CONTENT</span><h2 id="assistant-editor-title">新建知识库</h2></div><span class="upload-limit">仅可选择已解析文件</span></div>
+            <form id="assistant-base-form" class="assistant-base-form"><label for="assistant-base-name">知识库名称</label><input id="assistant-base-name" maxlength="80" required placeholder="例如：污水处理工艺资料"><label for="assistant-base-description">说明</label><textarea id="assistant-base-description" maxlength="500" rows="2" placeholder="这组资料的用途（可选）"></textarea><div class="assistant-section-title"><strong>已选文件 <span id="assistant-selected-count">0</span></strong></div><div id="assistant-selected-documents" class="assistant-selected-documents">尚未选择文件</div><label for="assistant-document-search">添加已解析文件</label><input id="assistant-document-search" type="search" placeholder="搜索文件名"><div id="assistant-document-options" class="assistant-document-options">正在加载文件…</div><button id="assistant-load-more-documents" class="subtle-button" type="button" hidden>加载更多文件 ↓</button><div class="assistant-editor-actions"><button class="button-primary" type="submit">保存知识库</button><button id="assistant-delete-base" class="subtle-button danger" type="button" hidden>删除知识库</button><span id="assistant-editor-message" role="status"></span></div></form>
+          </div>
+        </section>
       </div>
     </div>
   </main>
@@ -70,20 +106,15 @@
     <div class="command-main">
       <header class="command-topbar"><div class="breadcrumb">资源管理 <span>/</span> 知识文档</div><div class="header-actions"><span class="live-pulse"></span><span>本地存储</span><span class="top-divider"></span><span id="documents-service-status">正在连接服务</span></div><button class="mobile-route" data-nav="工艺总览">← 工艺总览</button></header>
       <div class="command-content documents-content">
-        <div class="page-heading"><div><div class="eyebrow">KNOWLEDGE DOCUMENTS / 02</div><h1>知识文档</h1><p>本机保存原件，按段落检索资料并结合出处回答问题。</p></div><div class="heading-actions"><button class="button-primary" id="choose-files">＋ 上传文档</button><input id="document-files" type="file" multiple accept=".doc,.docx,.txt,.pdf,.xls,.xlsx,.ppt,.pptx,.csv,.rtf,.odt,.ods,.odp" hidden></div></div>
+        <div class="page-heading"><div><div class="eyebrow">KNOWLEDGE DOCUMENTS / 02</div><h1>知识文档</h1><p>上传、预览和管理原始文件。解析完成后可在 AI 助手中加入知识库。</p></div><div class="heading-actions"><button class="button-primary" id="choose-files">＋ 上传文档</button><input id="document-files" type="file" multiple accept=".doc,.docx,.txt,.pdf,.xls,.xlsx,.ppt,.pptx,.csv,.rtf,.odt,.ods,.odp" hidden></div></div>
         <div id="documents-service-message" class="documents-service-message" hidden></div>
         <section class="dark-panel upload-panel" aria-labelledby="upload-heading">
           <div class="panel-head"><div><span class="panel-kicker">01 / UPLOAD</span><h2 id="upload-heading">上传原始文件</h2></div><span class="upload-limit">单文件最大 10 GiB · 支持续传</span></div>
           <div id="document-dropzone" class="document-dropzone" role="button" tabindex="0" aria-label="选择或拖放文档上传"><span class="drop-icon">⇧</span><strong>将文档拖到这里，或点击选择文件</strong><span>Word、PDF、TXT、Excel、PPT、CSV、RTF、OpenDocument</span></div>
           <div id="upload-queue" class="upload-queue" aria-live="polite"></div>
         </section>
-        <section class="dark-panel knowledge-panel" aria-labelledby="knowledge-heading">
-          <div class="panel-head"><div><span class="panel-kicker">02 / KNOWLEDGE</span><h2 id="knowledge-heading">段落检索与问答</h2></div><span class="upload-limit">基于本机已索引文档</span></div>
-          <form id="knowledge-form" class="knowledge-form"><label for="knowledge-query">输入问题或检索内容</label><div class="knowledge-input-row"><input id="knowledge-query" type="search" maxlength="500" placeholder="例如：开题报告中的研究目标是什么？" required><button class="button-primary" type="submit" name="mode" value="answer">提问</button><button class="subtle-button" type="submit" name="mode" value="search">只检索段落</button></div></form>
-          <div id="knowledge-results" class="knowledge-results" aria-live="polite"><p class="knowledge-hint">上传文档并等待索引完成后，可查询 Word、PDF、PPT 和 TXT 中的文字段落。</p></div>
-        </section>
         <section class="dark-panel documents-library" aria-labelledby="library-heading">
-          <div class="panel-head"><div><span class="panel-kicker">03 / LIBRARY</span><h2 id="library-heading">文件列表 <span id="document-count" class="document-count">0</span></h2></div><button class="subtle-button" id="refresh-documents">刷新列表 ↻</button></div>
+          <div class="panel-head"><div><span class="panel-kicker">02 / LIBRARY</span><h2 id="library-heading">文件列表 <span id="document-count" class="document-count">0</span></h2></div><button class="subtle-button" id="refresh-documents">刷新列表 ↻</button></div>
           <div class="document-toolbar"><label class="document-search"><span>⌕</span><input id="document-search" type="search" placeholder="搜索文件名" aria-label="搜索文件名"></label><span id="documents-summary">原始文件保存在本机数据目录</span></div>
           <div class="document-table-wrap"><table class="document-table"><thead><tr><th>文件名称</th><th>大小</th><th>上传时间</th><th>保存状态</th><th>段落索引</th><th>操作</th></tr></thead><tbody id="document-rows"><tr><td colspan="6" class="document-empty">正在加载文件…</td></tr></tbody></table></div><div class="document-more"><button id="load-more-documents" class="subtle-button" hidden>加载更多文件 ↓</button></div>
         </section>
@@ -106,5 +137,6 @@
   <script src="vendor/tus.min.js"></script>
   <script src="app.js"></script>
   <script src="documents.js"></script>
+  <script src="assistant.js"></script>
 </body>
 </html>

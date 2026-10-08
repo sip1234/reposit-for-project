@@ -1,4 +1,4 @@
-const pages = ['command', 'studio', 'documents'];
+const pages = ['command', 'studio', 'documents', 'assistant'];
 const equipment = {
   '原水池': { description: '原水池液位保持稳定，当前示例测点为液位 78.2%。', status: '运行正常' },
   '提升泵': { description: '提升泵当前示例流量为 42.8 m³/h；2 号泵有待巡检提醒。', status: '运行中 · 待巡检' },
@@ -17,6 +17,7 @@ function selectPage(pageName) {
   }
   document.body.dataset.page = pageName;
   if (pageName === 'documents') window.dispatchEvent(new Event('documents:open'));
+  if (pageName === 'assistant') window.dispatchEvent(new Event('assistant:open'));
   history.replaceState(null, '', `#${pageName}`);
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -42,6 +43,7 @@ document.querySelectorAll('[data-nav]').forEach(button => button.addEventListene
   if (label === '仿真推演') selectPage('studio');
   else if (label === '工艺总览') selectPage('command');
   else if (label === '知识文档') selectPage('documents');
+  else if (label === 'AI 助手') selectPage('assistant');
   else showToast(`${label}模块在当前原型中展示为导航入口`);
 }));
 
@@ -68,20 +70,14 @@ document.querySelectorAll('[data-period]').forEach(button => button.addEventList
   showToast(`已切换到${button.dataset.period}视图（示意曲线）`);
 }));
 
-const aiReplies = [
-  { match: /浊度|异常|告警/, answer: '建议先查询近 24 小时浊度与进水负荷曲线，再核对加药记录和测点质量标记。若持续升高，可在仿真环境评估参数调整。' },
-  { match: /参数|调整|影响|仿真/, answer: '参数调整可能同时影响处理效果与能耗。先限定允许范围，再调用机理模型比较候选方案，并核对约束与测点数据。' },
-  { match: /能耗|效率|优化/, answer: '可以读取最新数据与基准表现，生成约束内的候选参数，逐一仿真比较，再记录推荐方案与复核结果。' }
-];
-function answerAI(question) {
-  if (!question.trim()) return;
-  const found = aiReplies.find(item => item.match.test(question));
-  document.getElementById('command-ai-reply').textContent = found?.answer || '这个问题可以结合运行数据、规程知识库与机理模型共同分析。当前原型仅展示交互形式，尚未接入真实检索或模型。';
-  document.getElementById('command-ai-input').value = '';
+function openAssistant(question) {
+  selectPage('assistant');
+  if (question.trim()) document.getElementById('knowledge-query').value = question.trim();
+  document.getElementById('knowledge-query').focus();
 }
-document.querySelectorAll('[data-ai]').forEach(button => button.addEventListener('click', () => answerAI(button.dataset.ai)));
-document.getElementById('command-ai-send').addEventListener('click', () => answerAI(document.getElementById('command-ai-input').value));
-document.getElementById('command-ai-input').addEventListener('keydown', event => { if (event.key === 'Enter') answerAI(event.target.value); });
+document.querySelectorAll('[data-ai]').forEach(button => button.addEventListener('click', () => openAssistant(button.dataset.ai)));
+document.getElementById('command-ai-send').addEventListener('click', () => openAssistant(document.getElementById('command-ai-input').value));
+document.getElementById('command-ai-input').addEventListener('keydown', event => { if (event.key === 'Enter') openAssistant(event.target.value); });
 
 const parameterIds = ['aeration', 'reflux', 'dosage'];
 parameterIds.forEach(id => {

@@ -46,11 +46,11 @@ function validUpload(upload, requireId = true) {
   return { id: upload.ID, name, ext, size, mime: String(upload?.MetaData?.filetype || '').slice(0, 120) };
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = 64 * 1024) {
   let data = '';
   for await (const chunk of req) {
     data += chunk;
-    if (data.length > 64 * 1024) throw new Error('请求过大');
+    if (Buffer.byteLength(data) > maxBytes) throw new Error('请求过大');
   }
   return JSON.parse(data);
 }
@@ -300,6 +300,7 @@ const staticFiles = new Map([
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
   ['/documents.js', ['documents.js', 'application/javascript; charset=utf-8']],
+  ['/assistant.js', ['assistant.js', 'application/javascript; charset=utf-8']],
   ['/vendor/tus.min.js', ['node_modules/tus-js-client/dist/tus.min.js', 'application/javascript; charset=utf-8']]
 ]);
 
@@ -312,6 +313,7 @@ async function handler(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/internal/tusd-hook') return await hook(req, res, url);
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
+    if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
     const asset = staticFiles.get(url.pathname);
     if (req.method !== 'GET' || !asset) return send(res, 404, { error: '未找到资源' });

@@ -9,8 +9,6 @@
   const serviceMessage = document.getElementById('documents-service-message');
   const previewModal = document.getElementById('document-preview');
   const previewBody = document.getElementById('document-preview-body');
-  const knowledgeForm = document.getElementById('knowledge-form');
-  const knowledgeResults = document.getElementById('knowledge-results');
   let records = [];
   let loaded = false;
   let nextCursor = null;
@@ -176,40 +174,6 @@
     return { row, state, fill, detail, control };
   }
 
-  function renderKnowledge(data, mode) {
-    knowledgeResults.replaceChildren();
-    if (mode === 'answer') {
-      const heading = document.createElement('h3'); heading.textContent = '文档回答';
-      const answer = document.createElement('p');
-      answer.className = 'knowledge-answer';
-      answer.textContent = data.answer || data.answerError || '暂无回答';
-      knowledgeResults.append(heading, answer);
-    }
-    const heading = document.createElement('h3');
-    heading.textContent = `相关段落 · ${data.sources?.length || 0}`;
-    knowledgeResults.append(heading);
-    if (!data.sources?.length) {
-      const empty = document.createElement('p'); empty.className = 'knowledge-hint';
-      empty.textContent = '已索引文档中没有找到段落。';
-      knowledgeResults.append(empty);
-    }
-    for (const source of data.sources || []) {
-      const card = document.createElement('article'); card.className = 'knowledge-source';
-      const title = document.createElement('div'); title.className = 'knowledge-source-title';
-      const label = document.createElement('strong');
-      label.textContent = `[${source.number}] ${source.filename} · ${source.locator}`;
-      const open = document.createElement('button'); open.type = 'button';
-      open.textContent = '查看原件 ↗'; open.className = 'document-preview-button';
-      open.addEventListener('click', () => {
-        const item = records.find(record => record.id === source.documentId) || { id: source.documentId, filename: source.filename };
-        openPreview(item, open);
-      });
-      title.append(label, open);
-      const excerpt = document.createElement('p'); excerpt.textContent = source.excerpt;
-      card.append(title, excerpt); knowledgeResults.append(card);
-    }
-  }
-
   function addFiles(files) {
     for (const file of files) {
       const ui = makeUploadRow(file);
@@ -296,28 +260,7 @@
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => refresh(), 250);
   });
-  knowledgeForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const mode = event.submitter?.value === 'search' ? 'search' : 'answer';
-    const query = document.getElementById('knowledge-query').value.trim();
-    if (!query) return;
-    const buttons = [...knowledgeForm.querySelectorAll('button')];
-    buttons.forEach(button => { button.disabled = true; });
-    knowledgeResults.textContent = mode === 'answer' ? '正在检索段落并生成回答…' : '正在检索段落…';
-    try {
-      const response = await fetch('/api/knowledge/query', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, mode })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '请求失败');
-      renderKnowledge(data, mode);
-    } catch (error) {
-      knowledgeResults.textContent = error.message || '检索失败';
-    } finally {
-      buttons.forEach(button => { button.disabled = false; });
-    }
-  });
+  window.openDocumentPreview = (item, opener) => openPreview(item, opener);
   window.addEventListener('documents:open', () => refresh());
   document.getElementById('document-preview-close').addEventListener('click', closePreview);
   previewModal.addEventListener('click', event => { if (event.target === previewModal) closePreview(); });

@@ -8,7 +8,7 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
-COPY index.html styles.css app.js documents.js ./
+COPY index.html styles.css app.js documents.js assistant.js ./
 COPY server ./server
 COPY worker ./worker
 ENV NODE_ENV=production
