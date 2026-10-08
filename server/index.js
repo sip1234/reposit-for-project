@@ -8,6 +8,7 @@ const { promisify } = require('node:util');
 const { pathToFileURL } = require('node:url');
 const { Pool } = require('pg');
 const knowledge = require('./knowledge');
+const models = require('./models');
 
 const root = path.resolve(__dirname, '..');
 const dataRoot = path.resolve(process.env.DATA_ROOT || path.join(root, '..', 'dachuang-data'));
@@ -314,6 +315,7 @@ async function handler(req, res) {
     if (req.method === 'POST' && url.pathname === '/internal/tusd-hook') return await hook(req, res, url);
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
+    if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
     const asset = staticFiles.get(url.pathname);
     if (req.method !== 'GET' || !asset) return send(res, 404, { error: '未找到资源' });
@@ -341,6 +343,7 @@ async function start() {
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS documents_created_id_idx ON documents (created_at DESC, id DESC)');
   await knowledge.setup(pool);
+  await models.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

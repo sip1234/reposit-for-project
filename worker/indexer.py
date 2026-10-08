@@ -17,21 +17,20 @@ from pptx import Presentation
 DB = os.environ["DATABASE_URL"]
 DATA = Path(os.environ.get("DATA_ROOT", "/data"))
 OLLAMA = os.environ.get("OLLAMA_URL", "http://ollama:11434").rstrip("/")
-EMBED_MODEL = "qwen3-embedding:0.6b"
 DIRECT = {".pdf", ".docx", ".pptx", ".txt"}
 CONVERT = {".doc", ".ppt", ".rtf", ".odt", ".odp"}
 SUPPORTED = DIRECT | CONVERT
 
 
-def embed(texts):
+def embed(texts, model_name, dimensions):
     request = urllib.request.Request(
         OLLAMA + "/api/embed",
-        data=json.dumps({"model": EMBED_MODEL, "input": texts}).encode(),
+        data=json.dumps({"model": model_name, "input": texts}).encode(),
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=300) as response:
         vectors = json.load(response)["embeddings"]
-    if len(vectors) != len(texts) or any(len(vector) != 1024 for vector in vectors):
+    if len(vectors) != len(texts) or any(len(vector) != dimensions for vector in vectors):
         raise RuntimeError("向量模型返回了错误的维度")
     return vectors
 
@@ -174,8 +173,9 @@ def chunks(parts):
         yield current_location, "\n".join(current)
 
 
-def index_one(conn, job):
+def index_one(conn, job, model):
     digest, document_id, extension = job
+    model_id, model_name, dimensions = model
     file_path = DATA / "raw" / (document_id + extension)
     try:
         if not file_path.is_file():
@@ -191,14 +191,14 @@ def index_one(conn, job):
         for locator, content in chunks(paragraphs(file_path, extension)):
             batch.append((locator, content))
             if len(batch) >= 16:
-                count = save_batch(conn, digest, count, batch)
+                count = save_batch(conn, digest, count, batch, model_name, dimensions)
                 batch.clear()
         if batch:
-            count = save_batch(conn, digest, count, batch)
+            count = save_batch(conn, digest, count, batch, model_name, dimensions)
         if count == 0:
             raise RuntimeError("未提取到文字；扫描版 PDF 需要后续 OCR")
         with conn.cursor() as cursor:
-            cursor.execute("UPDATE document_index_jobs SET status='ready', chunk_count=%s, updated_at=now() WHERE sha256=%s", (count, digest))
+            cursor.execute("UPDATE document_index_jobs SET status='ready', chunk_count=%s, embedding_model_id=%s, updated_at=now() WHERE sha256=%s", (count, model_id, digest))
         conn.commit()
         print(f"Indexed {document_id}: {count} chunks", flush=True)
     except Exception as error:
@@ -206,16 +206,16 @@ def index_one(conn, job):
         temporary = isinstance(error, (urllib.error.URLError, TimeoutError))
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM document_chunks WHERE sha256=%s", (digest,))
-            cursor.execute("UPDATE document_index_jobs SET status=%s, error=%s, chunk_count=0, updated_at=now() WHERE sha256=%s",
-                           ("pending" if temporary else "failed", str(error)[:500], digest))
+            cursor.execute("UPDATE document_index_jobs SET status=%s, error=%s, chunk_count=0, embedding_model_id=%s, updated_at=now() WHERE sha256=%s",
+                           ("pending" if temporary else "failed", str(error)[:500], model_id, digest))
         conn.commit()
         print(f"Index failed {document_id}: {error}", flush=True)
         if temporary:
             time.sleep(10)
 
 
-def save_batch(conn, digest, offset, batch):
-    vectors = embed([content for _, content in batch])
+def save_batch(conn, digest, offset, batch, model_name, dimensions):
+    vectors = embed([content for _, content in batch], model_name, dimensions)
     with conn.cursor() as cursor:
         for number, ((locator, content), vector) in enumerate(zip(batch, vectors), offset):
             cursor.execute("INSERT INTO document_chunks (sha256, chunk_index, locator, content, embedding) VALUES (%s,%s,%s,%s,%s::vector)",
@@ -230,17 +230,25 @@ def work(conn):
     conn.commit()
     while True:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT id, model_name, dimensions FROM ai_models WHERE kind='embedding' AND active")
+            model = cursor.fetchone()
+            if not model:
+                conn.commit()
+                time.sleep(5)
+                continue
             cursor.execute("""INSERT INTO document_index_jobs (sha256, document_id, extension)
                 SELECT DISTINCT ON (sha256) sha256, id, extension FROM documents
                 WHERE status='ready' AND extension=ANY(%s) AND sha256 IS NOT NULL
                 ORDER BY sha256, completed_at ASC
                 ON CONFLICT (sha256) DO NOTHING""", (list(SUPPORTED),))
+            cursor.execute("""UPDATE document_index_jobs SET status='pending', error=NULL, chunk_count=0, updated_at=now()
+                WHERE status IN ('ready','failed') AND embedding_model_id IS DISTINCT FROM %s""", (model[0],))
             cursor.execute("""SELECT sha256, document_id, extension FROM document_index_jobs
                 WHERE status='pending' ORDER BY created_at ASC LIMIT 1""")
             job = cursor.fetchone()
         conn.commit()
         if job:
-            index_one(conn, job)
+            index_one(conn, job, model)
         else:
             time.sleep(5)
 

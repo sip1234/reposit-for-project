@@ -1,6 +1,6 @@
 # 工艺智控平台
 
-深色工艺总览、仿真推演、知识文档和 AI 助手页面。工艺总览中的设备指标与仿真结果仍为演示数据；知识文档的上传、预览，以及 AI 助手中的知识库与问答使用本地服务。
+深色工艺总览、仿真推演、知识文档和 AI 助手页面。工艺总览中的设备指标与仿真结果仍为演示数据；知识文档的上传、预览，以及 AI 助手中的知识库、模型管理与问答使用本地服务。
 
 ## 启动本地文档服务
 
@@ -14,7 +14,13 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 
 文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。
 
-保存完成的 PDF、DOCX、PPTX、TXT、DOC、PPT、RTF、ODT、ODP 会在后台按页、幻灯片或段落提取文字，切成约 700–1200 字的片段，用本地 `qwen3-embedding:0.6b` 建立 PostgreSQL `pgvector` 索引。相同 SHA-256 的文件复用索引。AI 助手可创建多个知识库，每个知识库选择已解析文件；提问时可同时选择多个知识库。后端只检索所选知识库内的文件，未加入任何知识库的文件不会进入问答。回答由本地 `qwen3:4b-instruct` 生成并显示引用，请核对下方原文。扫描版 PDF 尚无 OCR；Excel、CSV、ODS 暂不进入段落索引。超过 512 MiB 的 Office 文件仍保存原件，但暂不索引。
+保存完成的 PDF、DOCX、PPTX、TXT、DOC、PPT、RTF、ODT、ODP 会在后台按页、幻灯片或段落提取文字，切成约 700–1200 字的片段，用当前启用的 Ollama embedding 模型建立 PostgreSQL `pgvector` 索引。默认模型为 `qwen3-embedding:0.6b`。相同 SHA-256 的文件复用索引。AI 助手可创建多个知识库，每个知识库选择已解析文件；提问时可同时选择多个知识库。后端只检索所选知识库内的文件，未加入任何知识库的文件不会进入问答。回答由当前启用的 LLM 生成并显示引用，默认使用本地 `qwen3:4b-instruct`；请核对下方原文。扫描版 PDF 尚无 OCR；Excel、CSV、ODS 暂不进入段落索引。超过 512 MiB 的 Office 文件仍保存原件，但暂不索引。
+
+### 模型管理
+
+在 AI 助手的“模型管理”分页添加、编辑和切换模型。LLM 可使用 Ollama 或 DeepSeek，embedding 当前使用 Ollama。添加 Ollama 模型前先通过 `docker compose exec ollama ollama pull <模型名>` 下载；保存 embedding 模型时会调用一次本地 embedding 接口以确定向量维度。DeepSeek 可添加 `deepseek-flash` 或 `deepseek-v4-pro`，需要在页面输入 API 密钥；密钥经 AES-256-GCM 加密保存在 PostgreSQL，界面和列表接口不会回显。加密密钥由本地 `.env` 的 `HOOK_TOKEN` 派生，迁移数据库时应同时保留该值。
+
+每种模型类型启用一个模型。切换 LLM 立即用于后续问答；启用 DeepSeek 后，提问内容及检索出的段落会发送至 DeepSeek 接口。切换 embedding 模型会将已索引文件重新排队处理，期间对应知识库可能暂不可检索；原始文件不受影响。不同维度的向量可保存，但一次只检索当前模型建立的索引。在线 API 需要本机网络可连接其服务。
 
 PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先显示前 5 MiB；Office 和 OpenDocument 文件由本地 LibreOffice 转为 PDF 预览，转换结果缓存在 `DATA_DIR/previews`，原件不变。Office 文件超过 100 MiB 时请下载原件查看。预览转换可能与原软件排版略有差异。
 
@@ -23,7 +29,7 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 - tusd 临时上传目录：默认 `../dachuang-data/uploads`。
 - 永久原件目录：默认 `../dachuang-data/raw`，位于 Git 项目之外；不提供删除操作。
 - 预览缓存目录：默认 `../dachuang-data/previews`，可从原件重新生成。
-- PostgreSQL 存放文件元数据、段落、向量、知识库及其文件关联，使用 Docker 命名卷 `dachuang_postgres_data`。Ollama 模型存放在 `dachuang_ollama_models`。
+- PostgreSQL 存放文件元数据、段落、向量、知识库及其文件关联、模型配置与加密后的 API 密钥，使用 Docker 命名卷 `dachuang_postgres_data`。Ollama 模型存放在 `dachuang_ollama_models`。
 - 上传服务和页面仅绑定到本机 `127.0.0.1`。云存储接口留到后续阶段。
 
 可在 `.env` 中更改 `DATA_DIR`，将原件放到容量充足的本地磁盘。按每天 20 GB 估算，一年约新增 7.3 TB，长期保留需要持续扩容。备份时应同时备份 `DATA_DIR/raw` 和 PostgreSQL 数据；`uploads` 是未完成上传的续传数据，也建议纳入日常备份。不要使用 `docker compose down -v`，该命令会删除数据库卷。
@@ -35,8 +41,9 @@ npm install
 npm run check
 node scripts/smoke-test.js
 node scripts/check-knowledge-bases.js
+node scripts/check-models.js
 ```
 
-上传集成测试会经真实 tusd 上传一个小型 TXT 文件，验证分段续传、数据库记录、哈希和下载；测试文件会留在知识文档列表中。知识库集成测试会创建临时知识库，验证单库隔离、多库检索、文件成员更新和问答，然后删除临时知识库。
+上传集成测试会经真实 tusd 上传一个小型 TXT 文件，验证分段续传、数据库记录、哈希和下载；测试文件会留在知识文档列表中。知识库集成测试会创建临时知识库，验证单库隔离、多库检索、文件成员更新和问答，然后删除临时知识库。模型集成测试会创建临时配置、验证密钥不回显、切换 LLM 和 embedding 并等待重新索引，最后恢复原配置。
 
 工艺总览和仿真推演仍可直接打开 `index.html` 查看静态原型；知识文档与 AI 助手功能需要从本地服务地址打开。

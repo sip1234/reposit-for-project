@@ -2,6 +2,7 @@
   const tabButtons = [...document.querySelectorAll('[data-assistant-tab]')];
   const chatPanel = document.getElementById('assistant-chat');
   const basesPanel = document.getElementById('assistant-bases');
+  const modelsPanel = document.getElementById('assistant-models');
   const baseOptions = document.getElementById('assistant-base-options');
   const baseList = document.getElementById('assistant-base-list');
   const documentOptions = document.getElementById('assistant-document-options');
@@ -16,6 +17,8 @@
   let availableDocuments = [];
   let nextCursor = null;
   let documentSearchTimer;
+  let configuredModels = [];
+  let editingModelId = null;
 
   async function jsonRequest(url, options) {
     const response = await fetch(url, { cache: 'no-store', ...options });
@@ -38,13 +41,105 @@
   function setTab(name) {
     const chat = name === 'chat';
     chatPanel.hidden = !chat;
-    basesPanel.hidden = chat;
+    basesPanel.hidden = name !== 'bases';
+    modelsPanel.hidden = name !== 'models';
     for (const button of tabButtons) {
       const active = button.dataset.assistantTab === name;
       button.classList.toggle('active', active);
       button.setAttribute('aria-selected', String(active));
     }
-    if (!chat) loadDocuments();
+    if (name === 'bases') loadDocuments();
+    if (name === 'models') loadModels();
+  }
+
+  function renderModels() {
+    const list = document.getElementById('assistant-model-list');
+    list.replaceChildren();
+    const llm = configuredModels.find(model => model.kind === 'llm' && model.active);
+    const embedding = configuredModels.find(model => model.kind === 'embedding' && model.active);
+    document.getElementById('assistant-active-llm').textContent = `问答模型：${llm?.name || '未设置'}`;
+    document.getElementById('assistant-active-embedding').textContent = `向量模型：${embedding?.name || '未设置'}`;
+    for (const kind of ['llm', 'embedding']) {
+      const heading = document.createElement('h3');
+      heading.className = 'assistant-model-group-title';
+      heading.textContent = kind === 'llm' ? 'LLM · 问答生成' : 'Embedding · 文档检索';
+      list.append(heading);
+      for (const model of configuredModels.filter(item => item.kind === kind)) {
+        const card = document.createElement('article');
+        card.className = `assistant-model-item${model.id === editingModelId ? ' selected' : ''}`;
+        const row = document.createElement('div'); row.className = 'assistant-model-item-head';
+        const title = document.createElement('strong'); title.textContent = model.name;
+        row.append(title);
+        if (model.active) {
+          const badge = document.createElement('span'); badge.className = 'assistant-model-badge';
+          badge.textContent = '当前使用'; row.append(badge);
+        }
+        const detail = document.createElement('p');
+        detail.textContent = `${model.provider === 'deepseek' ? 'DeepSeek · 在线' : 'Ollama · 本地'} / ${model.modelName}${model.dimensions ? ` · ${model.dimensions} 维` : ''}`;
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'subtle-button';
+        edit.textContent = '编辑设置 ↗'; edit.addEventListener('click', () => editModel(model.id));
+        card.append(row, detail, edit); list.append(card);
+      }
+    }
+  }
+
+  async function loadModels() {
+    try {
+      const data = await jsonRequest('/api/models');
+      configuredModels = data.models || [];
+      if (editingModelId && !configuredModels.some(model => model.id === editingModelId)) newModel();
+      renderModels();
+    } catch (error) {
+      document.getElementById('assistant-model-list').textContent = `无法加载模型：${error.message}`;
+    }
+  }
+
+  function updateModelFields() {
+    const provider = document.getElementById('assistant-model-provider').value;
+    const kind = document.getElementById('assistant-model-kind');
+    const deepseek = provider === 'deepseek';
+    kind.querySelector('[value="embedding"]').disabled = deepseek;
+    if (deepseek) kind.value = 'llm';
+    document.getElementById('assistant-model-deepseek-options').hidden = !deepseek;
+    document.getElementById('assistant-model-identifier').placeholder = deepseek ? 'deepseek-flash 或 deepseek-v4-pro' :
+      kind.value === 'embedding' ? '例如：qwen3-embedding:0.6b' : '例如：qwen3:4b-instruct';
+    document.getElementById('assistant-model-provider-hint').hidden = deepseek;
+  }
+
+  function newModel() {
+    editingModelId = null;
+    document.getElementById('assistant-model-editor-title').textContent = '添加模型';
+    const form = document.getElementById('assistant-model-form');
+    form.reset();
+    for (const id of ['assistant-model-provider', 'assistant-model-kind', 'assistant-model-identifier']) {
+      document.getElementById(id).disabled = false;
+    }
+    document.getElementById('assistant-model-key').value = '';
+    document.getElementById('assistant-model-activate').hidden = true;
+    document.getElementById('assistant-model-delete').hidden = true;
+    document.getElementById('assistant-model-message').textContent = '';
+    updateModelFields(); renderModels();
+  }
+
+  function editModel(id) {
+    const model = configuredModels.find(item => item.id === id);
+    if (!model) return;
+    editingModelId = id;
+    document.getElementById('assistant-model-editor-title').textContent = '编辑模型';
+    document.getElementById('assistant-model-name').value = model.name;
+    document.getElementById('assistant-model-provider').value = model.provider;
+    document.getElementById('assistant-model-kind').value = model.kind;
+    document.getElementById('assistant-model-identifier').value = model.modelName;
+    document.getElementById('assistant-model-key').value = '';
+    updateModelFields();
+    for (const field of ['assistant-model-provider', 'assistant-model-kind', 'assistant-model-identifier']) {
+      document.getElementById(field).disabled = model.active;
+    }
+    document.getElementById('assistant-model-key').placeholder = model.hasApiKey ? '留空则保留已有密钥' : '输入 API 密钥';
+    document.getElementById('assistant-model-activate').hidden = model.active;
+    document.getElementById('assistant-model-delete').hidden = model.active;
+    document.getElementById('assistant-model-message').textContent = '';
+    renderModels();
   }
 
   function renderBaseOptions() {
@@ -232,6 +327,57 @@
 
   tabButtons.forEach(button => button.addEventListener('click', () => setTab(button.dataset.assistantTab)));
   document.getElementById('assistant-manage-bases').addEventListener('click', () => setTab('bases'));
+  document.getElementById('assistant-manage-models').addEventListener('click', () => setTab('models'));
+  document.getElementById('assistant-new-model').addEventListener('click', newModel);
+  document.getElementById('assistant-model-provider').addEventListener('change', updateModelFields);
+  document.getElementById('assistant-model-kind').addEventListener('change', updateModelFields);
+  document.getElementById('assistant-model-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    const status = document.getElementById('assistant-model-message');
+    submit.disabled = true; status.textContent = '正在保存并检查模型…';
+    const body = {
+      name: document.getElementById('assistant-model-name').value.trim(),
+      provider: document.getElementById('assistant-model-provider').value,
+      kind: document.getElementById('assistant-model-kind').value,
+      modelName: document.getElementById('assistant-model-identifier').value.trim(),
+      apiKey: document.getElementById('assistant-model-key').value.trim()
+    };
+    try {
+      const data = await jsonRequest(editingModelId ? `/api/models/${editingModelId}` : '/api/models', {
+        method: editingModelId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      await loadModels();
+      editModel(data.id);
+      status.textContent = '模型已保存。需要使用时，请点击“设为当前模型”。';
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  document.getElementById('assistant-model-activate').addEventListener('click', async () => {
+    const model = configuredModels.find(item => item.id === editingModelId);
+    if (!model) return;
+    const button = document.getElementById('assistant-model-activate');
+    const status = document.getElementById('assistant-model-message');
+    button.disabled = true; status.textContent = '正在切换模型…';
+    try {
+      const data = await jsonRequest(`/api/models/${model.id}/activate`, { method: 'POST' });
+      await loadModels(); editModel(model.id);
+      status.textContent = data.reindexing ? '已切换向量模型，文档正在重新建立索引。' : '已切换问答模型。';
+      if (data.reindexing) loadDocuments();
+    } catch (error) { status.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  document.getElementById('assistant-model-delete').addEventListener('click', async () => {
+    const model = configuredModels.find(item => item.id === editingModelId);
+    if (!model || !window.confirm(`删除模型“${model.name}”？`)) return;
+    const status = document.getElementById('assistant-model-message');
+    try {
+      await jsonRequest(`/api/models/${model.id}`, { method: 'DELETE' });
+      newModel(); await loadModels();
+      status.textContent = '模型已删除。';
+    } catch (error) { status.textContent = error.message; }
+  });
   document.getElementById('assistant-new-base').addEventListener('click', newBase);
   document.getElementById('assistant-load-more-documents').addEventListener('click', () => loadDocuments(true));
   document.getElementById('assistant-document-search').addEventListener('input', () => {
@@ -289,6 +435,6 @@
     } catch (error) { results.textContent = error.message; }
     finally { buttons.forEach(button => { button.disabled = false; }); }
   });
-  window.addEventListener('assistant:open', () => loadBases());
-  if (location.hash === '#assistant') loadBases();
+  window.addEventListener('assistant:open', () => { loadBases(); loadModels(); });
+  if (location.hash === '#assistant') { loadBases(); loadModels(); }
 })();
