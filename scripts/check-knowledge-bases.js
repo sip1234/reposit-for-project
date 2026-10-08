@@ -15,7 +15,7 @@ async function request(path, method = 'GET', body) {
 }
 
 async function run() {
-  const files = (await request('/api/knowledge-bases/documents')).data.documents;
+  const files = (await request('/api/knowledge-bases/documents')).data.documents.filter(item => item.indexStatus === 'ready');
   const first = files[0];
   const second = files.find(file => file.filename !== first?.filename);
   assert(first && second, 'Need two different indexed document types for this check');

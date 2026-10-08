@@ -125,8 +125,9 @@ async function hook(req, res, url) {
 function publicRow(row) {
   return { id: row.id, filename: row.filename, sizeBytes: Number(row.size_bytes), mimeType: row.mime_type,
     status: row.status, sha256: row.sha256, createdAt: row.created_at, completedAt: row.completed_at,
-    error: row.error_message, indexStatus: row.index_status || (row.status === 'ready' ? (knowledge.supported.has(row.extension) ? 'pending' : 'unsupported') : null),
-    indexChunks: row.index_chunks || 0, indexError: row.index_error || null };
+    error: row.error_message, indexStatus: row.index_status || (row.status === 'ready' ? (knowledge.supported.has(row.extension) ? 'unparsed' : 'unsupported') : null),
+    indexChunks: row.index_chunks || 0, indexError: row.index_error || null,
+    indexModelId: row.index_model_id || null, indexModelName: row.index_model_name || null };
 }
 
 async function convertOfficePreview(row) {
@@ -208,8 +209,11 @@ async function documents(req, res, url) {
       }
     } catch { return send(res, 400, { error: '无效的分页位置' }); }
     const result = await pool.query(`SELECT d.*, d.created_at::text AS cursor_date,
-      j.status AS index_status, j.chunk_count AS index_chunks, j.error AS index_error
-      FROM documents d LEFT JOIN document_index_jobs j ON j.sha256=d.sha256
+      j.status AS index_status, j.chunk_count AS index_chunks, j.error AS index_error,
+      m.id::text AS index_model_id, m.name AS index_model_name
+      FROM documents d LEFT JOIN document_parses parse ON parse.document_id=d.id
+      LEFT JOIN document_parse_jobs j ON j.id=parse.job_id
+      LEFT JOIN ai_models m ON m.id=j.embedding_model_id
       WHERE ($1::text = '' OR position(lower($1) in lower(d.filename)) > 0)
         AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::text))
       ORDER BY d.created_at DESC, d.id DESC LIMIT 101`,
@@ -316,6 +320,8 @@ async function handler(req, res) {
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
+    const parseMatch = /^\/api\/documents\/([A-Za-z0-9_-]{8,256})\/parse$/.exec(url.pathname);
+    if (parseMatch) return await knowledge.handleParse(pool, req, res, send, readBody, parseMatch[1]);
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
     const asset = staticFiles.get(url.pathname);
     if (req.method !== 'GET' || !asset) return send(res, 404, { error: '未找到资源' });
@@ -344,6 +350,7 @@ async function start() {
   await pool.query('CREATE INDEX IF NOT EXISTS documents_created_id_idx ON documents (created_at DESC, id DESC)');
   await knowledge.setup(pool);
   await models.setup(pool);
+  await knowledge.setupParsing(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

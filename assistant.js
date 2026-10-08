@@ -17,6 +17,7 @@
   let availableDocuments = [];
   let nextCursor = null;
   let documentSearchTimer;
+  const pendingUploadedIds = new Set();
   let configuredModels = [];
   let editingModelId = null;
 
@@ -48,7 +49,7 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-selected', String(active));
     }
-    if (name === 'bases') loadDocuments();
+    if (name === 'bases') { loadModels(); loadDocuments(); }
     if (name === 'models') loadModels();
   }
 
@@ -58,7 +59,7 @@
     const llm = configuredModels.find(model => model.kind === 'llm' && model.active);
     const embedding = configuredModels.find(model => model.kind === 'embedding' && model.active);
     document.getElementById('assistant-active-llm').textContent = `问答模型：${llm?.name || '未设置'}`;
-    document.getElementById('assistant-active-embedding').textContent = `向量模型：${embedding?.name || '未设置'}`;
+    document.getElementById('assistant-active-embedding').textContent = `默认向量模型：${embedding?.name || '未设置'}`;
     for (const kind of ['llm', 'embedding']) {
       const heading = document.createElement('h3');
       heading.className = 'assistant-model-group-title';
@@ -89,6 +90,7 @@
       configuredModels = data.models || [];
       if (editingModelId && !configuredModels.some(model => model.id === editingModelId)) newModel();
       renderModels();
+      if (!basesPanel.hidden) renderDocumentOptions();
     } catch (error) {
       document.getElementById('assistant-model-list').textContent = `无法加载模型：${error.message}`;
     }
@@ -259,11 +261,12 @@
   function renderDocumentOptions() {
     documentOptions.replaceChildren();
     if (!availableDocuments.length) {
-      documentOptions.textContent = '没有匹配的已解析文件。可先到“知识文档”上传并等待索引完成。';
+      documentOptions.textContent = '没有匹配的已保存文件。可在上方直接上传。';
       return;
     }
     for (const item of availableDocuments) {
-      const label = document.createElement('label'); label.className = 'assistant-document-option';
+      const row = document.createElement('div'); row.className = 'assistant-document-option';
+      const label = document.createElement('label'); label.className = 'assistant-document-choice';
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox'; checkbox.checked = selectedDocuments.has(item.id);
       checkbox.addEventListener('change', () => {
@@ -273,9 +276,14 @@
       });
       const text = document.createElement('span');
       const name = document.createElement('strong'); name.textContent = item.filename;
-      const detail = document.createElement('small'); detail.textContent = `${item.indexChunks} 段已索引`;
-      text.append(name, detail); label.append(checkbox, text);
-      documentOptions.append(label);
+      const detail = document.createElement('small');
+      detail.textContent = item.indexStatus === 'ready'
+        ? `${item.indexChunks} 段已解析 · ${item.indexModelName || '向量模型'}`
+        : ({ unparsed: '未解析', pending: '等待解析', processing: '解析中', failed: `解析失败：${item.indexError || '请重试'}`,
+          unsupported: '暂不支持解析' }[item.indexStatus] || '未解析');
+      text.append(name, detail); label.append(checkbox, text); row.append(label);
+      row.append(window.createDocumentParseControls(item, configuredModels, () => loadDocuments()));
+      documentOptions.append(row);
     }
   }
 
@@ -287,8 +295,12 @@
     try {
       const data = await jsonRequest(`/api/knowledge-bases/documents?${params}`);
       availableDocuments = more ? availableDocuments.concat(data.documents || []) : data.documents || [];
+      for (const item of availableDocuments) {
+        if (pendingUploadedIds.delete(item.id)) selectedDocuments.set(item.id, item.filename);
+      }
       nextCursor = data.nextCursor || null;
       document.getElementById('assistant-load-more-documents').hidden = !nextCursor;
+      renderSelectedDocuments();
       renderDocumentOptions();
     } catch (error) {
       documentOptions.textContent = `无法加载文件：${error.message}`;
@@ -363,8 +375,8 @@
     try {
       const data = await jsonRequest(`/api/models/${model.id}/activate`, { method: 'POST' });
       await loadModels(); editModel(model.id);
-      status.textContent = data.reindexing ? '已切换向量模型，文档正在重新建立索引。' : '已切换问答模型。';
-      if (data.reindexing) loadDocuments();
+      status.textContent = model.kind === 'embedding'
+        ? '已设置新文件解析的默认 embedding 模型，已有文件保持原解析结果。' : '已切换问答模型。';
     } catch (error) { status.textContent = error.message; }
     finally { button.disabled = false; }
   });
@@ -379,6 +391,20 @@
     } catch (error) { status.textContent = error.message; }
   });
   document.getElementById('assistant-new-base').addEventListener('click', newBase);
+  const assistantUploadInput = document.getElementById('assistant-upload-input');
+  document.getElementById('assistant-upload-files').addEventListener('click', () => assistantUploadInput.click());
+  assistantUploadInput.addEventListener('change', () => {
+    document.getElementById('assistant-document-search').value = '';
+    window.startDocumentUploads(assistantUploadInput.files, {
+      queue: document.getElementById('assistant-upload-queue'),
+      onUploaded(id) {
+        if (id) pendingUploadedIds.add(id);
+        message.textContent = '原件已上传，正在保存。保存完成后选择 embedding 模型并点击“解析”。';
+        loadDocuments();
+      }
+    });
+    assistantUploadInput.value = '';
+  });
   document.getElementById('assistant-load-more-documents').addEventListener('click', () => loadDocuments(true));
   document.getElementById('assistant-document-search').addEventListener('input', () => {
     clearTimeout(documentSearchTimer);
@@ -437,4 +463,7 @@
   });
   window.addEventListener('assistant:open', () => { loadBases(); loadModels(); });
   if (location.hash === '#assistant') { loadBases(); loadModels(); }
+  setInterval(() => {
+    if (!basesPanel.hidden) loadDocuments();
+  }, 5000);
 })();

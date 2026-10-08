@@ -17,8 +17,8 @@ from pptx import Presentation
 DB = os.environ["DATABASE_URL"]
 DATA = Path(os.environ.get("DATA_ROOT", "/data"))
 OLLAMA = os.environ.get("OLLAMA_URL", "http://ollama:11434").rstrip("/")
-DIRECT = {".pdf", ".docx", ".pptx", ".txt"}
-CONVERT = {".doc", ".ppt", ".rtf", ".odt", ".odp"}
+DIRECT = {".pdf", ".docx", ".pptx", ".txt", ".csv"}
+CONVERT = {".doc", ".ppt", ".rtf", ".odt", ".odp", ".xls", ".xlsx", ".ods"}
 SUPPORTED = DIRECT | CONVERT
 
 
@@ -127,7 +127,7 @@ def paragraphs(file_path, extension):
         yield from docx_paragraphs(file_path)
     elif extension == ".pptx":
         yield from pptx_paragraphs(file_path)
-    elif extension == ".txt":
+    elif extension in {".txt", ".csv"}:
         yield from text_paragraphs(file_path)
     else:
         with tempfile.TemporaryDirectory(prefix="index-", dir=DATA / "previews") as folder:
@@ -173,9 +173,8 @@ def chunks(parts):
         yield current_location, "\n".join(current)
 
 
-def index_one(conn, job, model):
-    digest, document_id, extension = job
-    model_id, model_name, dimensions = model
+def index_one(conn, job):
+    job_id, document_id, extension, model_name, dimensions = job
     file_path = DATA / "raw" / (document_id + extension)
     try:
         if not file_path.is_file():
@@ -183,72 +182,60 @@ def index_one(conn, job, model):
         if extension in CONVERT | {".docx", ".pptx"} and file_path.stat().st_size > 512 * 1024 ** 2:
             raise RuntimeError("Office 文件超过 512 MiB，已保存原件，暂不建立段落索引")
         with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM document_chunks WHERE sha256=%s", (digest,))
-            cursor.execute("UPDATE document_index_jobs SET status='processing', error=NULL, updated_at=now() WHERE sha256=%s", (digest,))
+            cursor.execute("DELETE FROM document_parse_chunks WHERE job_id=%s", (job_id,))
+            cursor.execute("UPDATE document_parse_jobs SET status='processing', error=NULL, updated_at=now() WHERE id=%s", (job_id,))
         conn.commit()
         batch = []
         count = 0
         for locator, content in chunks(paragraphs(file_path, extension)):
             batch.append((locator, content))
             if len(batch) >= 16:
-                count = save_batch(conn, digest, count, batch, model_name, dimensions)
+                count = save_batch(conn, job_id, count, batch, model_name, dimensions)
                 batch.clear()
         if batch:
-            count = save_batch(conn, digest, count, batch, model_name, dimensions)
+            count = save_batch(conn, job_id, count, batch, model_name, dimensions)
         if count == 0:
             raise RuntimeError("未提取到文字；扫描版 PDF 需要后续 OCR")
         with conn.cursor() as cursor:
-            cursor.execute("UPDATE document_index_jobs SET status='ready', chunk_count=%s, embedding_model_id=%s, updated_at=now() WHERE sha256=%s", (count, model_id, digest))
+            cursor.execute("UPDATE document_parse_jobs SET status='ready', chunk_count=%s, updated_at=now() WHERE id=%s", (count, job_id))
         conn.commit()
         print(f"Indexed {document_id}: {count} chunks", flush=True)
     except Exception as error:
         conn.rollback()
         temporary = isinstance(error, (urllib.error.URLError, TimeoutError))
         with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM document_chunks WHERE sha256=%s", (digest,))
-            cursor.execute("UPDATE document_index_jobs SET status=%s, error=%s, chunk_count=0, embedding_model_id=%s, updated_at=now() WHERE sha256=%s",
-                           ("pending" if temporary else "failed", str(error)[:500], model_id, digest))
+            cursor.execute("DELETE FROM document_parse_chunks WHERE job_id=%s", (job_id,))
+            cursor.execute("UPDATE document_parse_jobs SET status=%s, error=%s, chunk_count=0, updated_at=now() WHERE id=%s",
+                           ("pending" if temporary else "failed", str(error)[:500], job_id))
         conn.commit()
         print(f"Index failed {document_id}: {error}", flush=True)
         if temporary:
             time.sleep(10)
 
 
-def save_batch(conn, digest, offset, batch, model_name, dimensions):
+def save_batch(conn, job_id, offset, batch, model_name, dimensions):
     vectors = embed([content for _, content in batch], model_name, dimensions)
     with conn.cursor() as cursor:
         for number, ((locator, content), vector) in enumerate(zip(batch, vectors), offset):
-            cursor.execute("INSERT INTO document_chunks (sha256, chunk_index, locator, content, embedding) VALUES (%s,%s,%s,%s,%s::vector)",
-                           (digest, number, locator, content, "[" + ",".join(map(str, vector)) + "]"))
+            cursor.execute("INSERT INTO document_parse_chunks (job_id, chunk_index, locator, content, embedding) VALUES (%s,%s,%s,%s,%s::vector)",
+                           (job_id, number, locator, content, "[" + ",".join(map(str, vector)) + "]"))
     conn.commit()
     return offset + len(batch)
 
 
 def work(conn):
     with conn.cursor() as cursor:
-        cursor.execute("UPDATE document_index_jobs SET status='pending' WHERE status='processing'")
+        cursor.execute("UPDATE document_parse_jobs SET status='pending' WHERE status='processing'")
     conn.commit()
     while True:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT id, model_name, dimensions FROM ai_models WHERE kind='embedding' AND active")
-            model = cursor.fetchone()
-            if not model:
-                conn.commit()
-                time.sleep(5)
-                continue
-            cursor.execute("""INSERT INTO document_index_jobs (sha256, document_id, extension)
-                SELECT DISTINCT ON (sha256) sha256, id, extension FROM documents
-                WHERE status='ready' AND extension=ANY(%s) AND sha256 IS NOT NULL
-                ORDER BY sha256, completed_at ASC
-                ON CONFLICT (sha256) DO NOTHING""", (list(SUPPORTED),))
-            cursor.execute("""UPDATE document_index_jobs SET status='pending', error=NULL, chunk_count=0, updated_at=now()
-                WHERE status IN ('ready','failed') AND embedding_model_id IS DISTINCT FROM %s""", (model[0],))
-            cursor.execute("""SELECT sha256, document_id, extension FROM document_index_jobs
-                WHERE status='pending' ORDER BY created_at ASC LIMIT 1""")
+            cursor.execute("""SELECT j.id,j.source_document_id,j.extension,m.model_name,m.dimensions
+                FROM document_parse_jobs j JOIN ai_models m ON m.id=j.embedding_model_id
+                WHERE j.status='pending' ORDER BY j.created_at ASC LIMIT 1""")
             job = cursor.fetchone()
         conn.commit()
         if job:
-            index_one(conn, job, model)
+            index_one(conn, job)
         else:
             time.sleep(5)
 

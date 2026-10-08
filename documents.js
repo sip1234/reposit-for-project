@@ -15,6 +15,7 @@
   let searchTimer;
   let previewToken = 0;
   let previewOpener;
+  let embeddingModels = [];
 
   function bytes(size) {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GiB`;
@@ -35,8 +36,12 @@
       const query = document.getElementById('document-search').value.trim();
       if (query) params.set('q', query);
       if (more && nextCursor) params.set('cursor', nextCursor);
-      const response = await fetch(`/api/documents?${params}`, { cache: 'no-store' });
+      const [response, modelResponse] = await Promise.all([
+        fetch(`/api/documents?${params}`, { cache: 'no-store' }),
+        fetch('/api/models', { cache: 'no-store' })
+      ]);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (modelResponse.ok) embeddingModels = (await modelResponse.json()).models.filter(model => model.kind === 'embedding');
       const data = await response.json();
       records = more ? records.concat(data.documents || []) : data.documents || [];
       nextCursor = data.nextCursor || null;
@@ -87,7 +92,7 @@
       const index = document.createElement('td');
       const indexBadge = document.createElement('span');
       indexBadge.className = `document-status ${item.indexStatus || ''}`;
-      indexBadge.textContent = { pending: '等待索引', processing: '解析中', ready: `${item.indexChunks} 段已索引`, failed: '索引失败', unsupported: '暂不支持' }[item.indexStatus] || '—';
+      indexBadge.textContent = { unparsed: '未解析', pending: '等待解析', processing: '解析中', ready: `${item.indexChunks} 段已索引`, failed: '解析失败', unsupported: '暂不支持' }[item.indexStatus] || '—';
       if (item.indexError) indexBadge.title = item.indexError;
       index.append(indexBadge);
       const action = document.createElement('td');
@@ -101,7 +106,7 @@
         link.href = `/api/documents/${encodeURIComponent(item.id)}/download`;
         link.textContent = '下载原件 ↗';
         link.className = 'document-download';
-        action.append(preview, link);
+        action.append(preview, link, createParseControls(item, embeddingModels, () => refresh()));
       } else action.textContent = '—';
       row.append(name, size, date, status, index, action);
       listBody.append(row);
@@ -158,7 +163,41 @@
     }
   }
 
-  function makeUploadRow(file) {
+  function createParseControls(item, modelList, onDone) {
+    const controls = document.createElement('span'); controls.className = 'document-parse-controls';
+    if (item.indexStatus === 'unsupported') return controls;
+    const available = modelList.filter(model => model.kind === 'embedding');
+    const select = document.createElement('select'); select.setAttribute('aria-label', `${item.filename} 的 embedding 模型`);
+    for (const model of available) {
+      const option = document.createElement('option'); option.value = model.id; option.textContent = model.name;
+      select.append(option);
+    }
+    select.value = available.some(model => model.id === item.indexModelId)
+      ? item.indexModelId : (available.find(model => model.active)?.id || available[0]?.id || '');
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'subtle-button';
+    function update() {
+      const same = select.value === item.indexModelId;
+      button.disabled = !select.value || (same && ['ready', 'pending', 'processing'].includes(item.indexStatus));
+      button.textContent = same && item.indexStatus === 'ready' ? '已解析' : '解析';
+    }
+    select.addEventListener('change', update); update();
+    button.addEventListener('click', async () => {
+      button.disabled = true; button.textContent = '提交中…';
+      try {
+        const response = await fetch(`/api/documents/${encodeURIComponent(item.id)}/parse`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modelId: select.value })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '解析请求失败');
+        onDone?.();
+      } catch (error) { button.textContent = error.message; button.disabled = false; }
+    });
+    controls.append(select, button);
+    return controls;
+  }
+
+  function makeUploadRow(file, target) {
     const row = document.createElement('div'); row.className = 'upload-row';
     const top = document.createElement('div'); top.className = 'upload-row-top';
     const title = document.createElement('strong'); title.textContent = file.name;
@@ -170,13 +209,13 @@
     const detail = document.createElement('span'); detail.textContent = bytes(file.size);
     const control = document.createElement('button'); control.type = 'button'; control.textContent = '暂停';
     bottom.append(detail, control);
-    row.append(top, track, bottom); queue.prepend(row);
+    row.append(top, track, bottom); target.prepend(row);
     return { row, state, fill, detail, control };
   }
 
-  function addFiles(files) {
+  function addFiles(files, options = {}) {
     for (const file of files) {
-      const ui = makeUploadRow(file);
+      const ui = makeUploadRow(file, options.queue || queue);
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       if (!allowed.has(ext) || file.size <= 0 || file.size > maxSize) {
         ui.state.textContent = '无法上传';
@@ -214,6 +253,9 @@
           ui.detail.textContent = '正在校验并保存原件';
           ui.control.remove();
           refresh();
+          const id = upload.url ? new URL(upload.url).pathname.split('/').filter(Boolean).at(-1) : null;
+          options.onUploaded?.(id);
+          window.dispatchEvent(new CustomEvent('document:uploaded', { detail: { id } }));
           setTimeout(() => {
             ui.row.remove();
             refresh();
@@ -261,6 +303,8 @@
     searchTimer = setTimeout(() => refresh(), 250);
   });
   window.openDocumentPreview = (item, opener) => openPreview(item, opener);
+  window.createDocumentParseControls = createParseControls;
+  window.startDocumentUploads = (files, options) => addFiles(files, options);
   window.addEventListener('documents:open', () => refresh());
   document.getElementById('document-preview-close').addEventListener('click', closePreview);
   previewModal.addEventListener('click', event => { if (event.target === previewModal) closePreview(); });

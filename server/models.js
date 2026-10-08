@@ -125,6 +125,10 @@ async function save(pool, req, res, send, readBody, id) {
   if (id && !existing) return send(res, 404, { error: '模型不存在' });
   const input = validate(body, existing);
   if (input.error) return send(res, 400, { error: input.error });
+  if (existing && (existing.provider !== input.provider || existing.kind !== input.kind || existing.model_name !== input.modelName)) {
+    const used = await pool.query('SELECT 1 FROM document_parse_jobs WHERE embedding_model_id=$1 LIMIT 1', [id]);
+    if (used.rowCount) return send(res, 409, { error: '此模型已有解析结果；请新建模型配置，避免旧向量与新模型混用。' });
+  }
   let dimensions = null;
   if (input.kind === 'embedding') {
     try {
@@ -167,12 +171,8 @@ async function activate(pool, id, res, send) {
     if (model.active) { await client.query('COMMIT'); return send(res, 200, { active: true }); }
     await client.query('UPDATE ai_models SET active=false, updated_at=now() WHERE kind=$1 AND active', [model.kind]);
     await client.query('UPDATE ai_models SET active=true, updated_at=now() WHERE id=$1', [id]);
-    if (model.kind === 'embedding') {
-      await client.query(`UPDATE document_index_jobs SET status='pending', error=NULL, chunk_count=0,
-        updated_at=now() WHERE status IN ('ready','failed') AND embedding_model_id IS DISTINCT FROM $1`, [id]);
-    }
     await client.query('COMMIT');
-    return send(res, 200, { active: true, reindexing: model.kind === 'embedding' });
+    return send(res, 200, { active: true });
   } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
   finally { client.release(); }
 }
@@ -192,8 +192,27 @@ async function handle(pool, req, res, url, send, readBody) {
   if (match[2]) return send(res, 405, { error: '不支持此请求' });
   if (req.method === 'PUT') return save(pool, req, res, send, readBody, match[1]);
   if (req.method === 'DELETE') {
-    const result = await pool.query('DELETE FROM ai_models WHERE id=$1 AND NOT active RETURNING id', [match[1]]);
-    return result.rowCount ? send(res, 200, { deleted: true }) : send(res, 409, { error: '当前启用的模型不能删除；请先启用同类型的其他模型。' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const model = (await client.query('SELECT active FROM ai_models WHERE id=$1 FOR UPDATE', [match[1]])).rows[0];
+      if (!model || model.active) {
+        await client.query('ROLLBACK');
+        return send(res, 409, { error: '当前启用的模型不能删除；请先启用同类型的其他模型。' });
+      }
+      const used = await client.query(`SELECT 1 FROM document_parse_jobs j
+        LEFT JOIN document_parses parse ON parse.job_id=j.id
+        WHERE j.embedding_model_id=$1 AND (parse.document_id IS NOT NULL OR j.status='processing') LIMIT 1`, [match[1]]);
+      if (used.rowCount) {
+        await client.query('ROLLBACK');
+        return send(res, 409, { error: '此模型仍用于文件解析，请先为相关文件选用其他模型。' });
+      }
+      await client.query('DELETE FROM document_parse_jobs WHERE embedding_model_id=$1', [match[1]]);
+      await client.query('DELETE FROM ai_models WHERE id=$1', [match[1]]);
+      await client.query('COMMIT');
+      return send(res, 200, { deleted: true });
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+    finally { client.release(); }
   }
   return send(res, 405, { error: '不支持此请求' });
 }
