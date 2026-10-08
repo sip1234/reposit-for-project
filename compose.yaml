@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     restart: unless-stopped
     environment:
       POSTGRES_DB: documents
@@ -23,6 +25,7 @@ services:
       DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
       HOOK_TOKEN: ${HOOK_TOKEN:?Run scripts/start.ps1 first}
       DATA_ROOT: /data
+      OLLAMA_URL: http://ollama:11434
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -30,6 +33,34 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    gpus: all
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+
+  indexer:
+    build: .
+    user: "1000:1000"
+    command: ["/opt/venv/bin/python", "worker/indexer.py"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
+      DATA_ROOT: /data
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - ${DATA_DIR:-../dachuang-data}:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+      ollama:
+        condition: service_started
 
   tusd:
     image: ghcr.io/tus/tusd:v2.9.2
@@ -55,3 +86,4 @@ services:
 
 volumes:
   postgres_data:
+  ollama_models:

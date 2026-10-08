@@ -7,6 +7,10 @@ if (-not (Test-Path -LiteralPath '.env')) {
 }
 $dataDir = Join-Path (Split-Path -Parent (Get-Location).Path) 'dachuang-data'
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-docker compose up -d --build
+docker compose up -d --build db ollama
+if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check Docker Desktop.' }
+powershell -ExecutionPolicy Bypass -File scripts/install-models.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Local model installation failed.' }
+docker compose up -d --build api indexer tusd
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check Docker Desktop.' }
 Write-Host 'Local service started: http://localhost:3000/#documents'

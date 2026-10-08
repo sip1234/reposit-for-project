@@ -70,17 +70,22 @@
     <div class="command-main">
       <header class="command-topbar"><div class="breadcrumb">资源管理 <span>/</span> 知识文档</div><div class="header-actions"><span class="live-pulse"></span><span>本地存储</span><span class="top-divider"></span><span id="documents-service-status">正在连接服务</span></div><button class="mobile-route" data-nav="工艺总览">← 工艺总览</button></header>
       <div class="command-content documents-content">
-        <div class="page-heading"><div><div class="eyebrow">KNOWLEDGE DOCUMENTS / 02</div><h1>知识文档</h1><p>集中保存工艺资料原件。上传后可在本机检索记录并下载原件。</p></div><div class="heading-actions"><button class="button-primary" id="choose-files">＋ 上传文档</button><input id="document-files" type="file" multiple accept=".doc,.docx,.txt,.pdf,.xls,.xlsx,.ppt,.pptx,.csv,.rtf,.odt,.ods,.odp" hidden></div></div>
+        <div class="page-heading"><div><div class="eyebrow">KNOWLEDGE DOCUMENTS / 02</div><h1>知识文档</h1><p>本机保存原件，按段落检索资料并结合出处回答问题。</p></div><div class="heading-actions"><button class="button-primary" id="choose-files">＋ 上传文档</button><input id="document-files" type="file" multiple accept=".doc,.docx,.txt,.pdf,.xls,.xlsx,.ppt,.pptx,.csv,.rtf,.odt,.ods,.odp" hidden></div></div>
         <div id="documents-service-message" class="documents-service-message" hidden></div>
         <section class="dark-panel upload-panel" aria-labelledby="upload-heading">
           <div class="panel-head"><div><span class="panel-kicker">01 / UPLOAD</span><h2 id="upload-heading">上传原始文件</h2></div><span class="upload-limit">单文件最大 10 GiB · 支持续传</span></div>
           <div id="document-dropzone" class="document-dropzone" role="button" tabindex="0" aria-label="选择或拖放文档上传"><span class="drop-icon">⇧</span><strong>将文档拖到这里，或点击选择文件</strong><span>Word、PDF、TXT、Excel、PPT、CSV、RTF、OpenDocument</span></div>
           <div id="upload-queue" class="upload-queue" aria-live="polite"></div>
         </section>
+        <section class="dark-panel knowledge-panel" aria-labelledby="knowledge-heading">
+          <div class="panel-head"><div><span class="panel-kicker">02 / KNOWLEDGE</span><h2 id="knowledge-heading">段落检索与问答</h2></div><span class="upload-limit">基于本机已索引文档</span></div>
+          <form id="knowledge-form" class="knowledge-form"><label for="knowledge-query">输入问题或检索内容</label><div class="knowledge-input-row"><input id="knowledge-query" type="search" maxlength="500" placeholder="例如：开题报告中的研究目标是什么？" required><button class="button-primary" type="submit" name="mode" value="answer">提问</button><button class="subtle-button" type="submit" name="mode" value="search">只检索段落</button></div></form>
+          <div id="knowledge-results" class="knowledge-results" aria-live="polite"><p class="knowledge-hint">上传文档并等待索引完成后，可查询 Word、PDF、PPT 和 TXT 中的文字段落。</p></div>
+        </section>
         <section class="dark-panel documents-library" aria-labelledby="library-heading">
-          <div class="panel-head"><div><span class="panel-kicker">02 / LIBRARY</span><h2 id="library-heading">文件列表 <span id="document-count" class="document-count">0</span></h2></div><button class="subtle-button" id="refresh-documents">刷新列表 ↻</button></div>
+          <div class="panel-head"><div><span class="panel-kicker">03 / LIBRARY</span><h2 id="library-heading">文件列表 <span id="document-count" class="document-count">0</span></h2></div><button class="subtle-button" id="refresh-documents">刷新列表 ↻</button></div>
           <div class="document-toolbar"><label class="document-search"><span>⌕</span><input id="document-search" type="search" placeholder="搜索文件名" aria-label="搜索文件名"></label><span id="documents-summary">原始文件保存在本机数据目录</span></div>
-          <div class="document-table-wrap"><table class="document-table"><thead><tr><th>文件名称</th><th>大小</th><th>上传时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="document-rows"><tr><td colspan="5" class="document-empty">正在加载文件…</td></tr></tbody></table></div><div class="document-more"><button id="load-more-documents" class="subtle-button" hidden>加载更多文件 ↓</button></div>
+          <div class="document-table-wrap"><table class="document-table"><thead><tr><th>文件名称</th><th>大小</th><th>上传时间</th><th>保存状态</th><th>段落索引</th><th>操作</th></tr></thead><tbody id="document-rows"><tr><td colspan="6" class="document-empty">正在加载文件…</td></tr></tbody></table></div><div class="document-more"><button id="load-more-documents" class="subtle-button" hidden>加载更多文件 ↓</button></div>
         </section>
       </div>
     </div>

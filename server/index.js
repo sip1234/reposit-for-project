@@ -7,6 +7,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { pathToFileURL } = require('node:url');
 const { Pool } = require('pg');
+const knowledge = require('./knowledge');
 
 const root = path.resolve(__dirname, '..');
 const dataRoot = path.resolve(process.env.DATA_ROOT || path.join(root, '..', 'dachuang-data'));
@@ -123,7 +124,8 @@ async function hook(req, res, url) {
 function publicRow(row) {
   return { id: row.id, filename: row.filename, sizeBytes: Number(row.size_bytes), mimeType: row.mime_type,
     status: row.status, sha256: row.sha256, createdAt: row.created_at, completedAt: row.completed_at,
-    error: row.error_message };
+    error: row.error_message, indexStatus: row.index_status || (row.status === 'ready' ? (knowledge.supported.has(row.extension) ? 'pending' : 'unsupported') : null),
+    indexChunks: row.index_chunks || 0, indexError: row.index_error || null };
 }
 
 async function convertOfficePreview(row) {
@@ -204,10 +206,12 @@ async function documents(req, res, url) {
         if (!Number.isFinite(Date.parse(cursor.date)) || !/^[A-Za-z0-9_-]{8,256}$/.test(cursor.id)) throw new Error();
       }
     } catch { return send(res, 400, { error: '无效的分页位置' }); }
-    const result = await pool.query(`SELECT *, created_at::text AS cursor_date FROM documents
-      WHERE ($1::text = '' OR position(lower($1) in lower(filename)) > 0)
-        AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::text))
-      ORDER BY created_at DESC, id DESC LIMIT 101`,
+    const result = await pool.query(`SELECT d.*, d.created_at::text AS cursor_date,
+      j.status AS index_status, j.chunk_count AS index_chunks, j.error AS index_error
+      FROM documents d LEFT JOIN document_index_jobs j ON j.sha256=d.sha256
+      WHERE ($1::text = '' OR position(lower($1) in lower(d.filename)) > 0)
+        AND ($2::timestamptz IS NULL OR (d.created_at, d.id) < ($2::timestamptz, $3::text))
+      ORDER BY d.created_at DESC, d.id DESC LIMIT 101`,
     [query, cursor?.date || null, cursor?.id || '']);
     const rows = result.rows.slice(0, 100);
     const last = rows.at(-1);
@@ -307,6 +311,7 @@ async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/internal/tusd-hook') return await hook(req, res, url);
+    if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
     const asset = staticFiles.get(url.pathname);
     if (req.method !== 'GET' || !asset) return send(res, 404, { error: '未找到资源' });
@@ -333,6 +338,7 @@ async function start() {
     created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz
   )`);
   await pool.query('CREATE INDEX IF NOT EXISTS documents_created_id_idx ON documents (created_at DESC, id DESC)');
+  await knowledge.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

@@ -1,6 +1,6 @@
 # 工艺智控平台
 
-深色工艺总览、仿真推演和知识文档页面。设备指标、AI 回答与仿真结果仍为演示数据；知识文档的上传、保存、列表和下载已接入本地服务。
+深色工艺总览、仿真推演和知识文档页面。工艺总览中的设备指标、AI 助手和仿真结果仍为演示数据；知识文档的上传、预览、段落检索与问答使用本地服务。
 
 ## 启动本地文档服务
 
@@ -10,9 +10,11 @@
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-首次启动会生成不提交到 Git 的 `.env` 随机凭据、拉取镜像并创建数据目录。打开 [知识文档](http://localhost:3000/#documents)。之后可用 `docker compose up -d` 启动、`docker compose down` 停止；后者不会删除持久数据。修改代码后再次运行启动脚本以重新构建。
+首次启动会生成不提交到 Git 的 `.env` 随机凭据、拉取镜像和本机模型并创建数据目录。模型约需数 GiB 下载空间，首次索引需要等待。打开 [知识文档](http://localhost:3000/#documents)。之后仍建议运行启动脚本，它会检查模型并重建代码；`docker compose down` 停止服务但保留持久数据。
 
-文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。当前尚未提取文档正文或构建知识检索索引。
+文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。
+
+保存完成的 PDF、DOCX、PPTX、TXT、DOC、PPT、RTF、ODT、ODP 会在后台按页、幻灯片或段落提取文字，切成约 700–1200 字的片段，用本地 `qwen3-embedding:0.6b` 建立 PostgreSQL `pgvector` 索引。相同 SHA-256 的文件复用索引。页面可直接检索相关段落，或用本地 `qwen3:4b-instruct` 结合段落回答并显示引用。回答是模型生成内容，请核对下方原文。扫描版 PDF 尚无 OCR；Excel、CSV、ODS 暂不进入段落索引。超过 512 MiB 的 Office 文件仍保存原件，但暂不索引。
 
 PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先显示前 5 MiB；Office 和 OpenDocument 文件由本地 LibreOffice 转为 PDF 预览，转换结果缓存在 `DATA_DIR/previews`，原件不变。Office 文件超过 100 MiB 时请下载原件查看。预览转换可能与原软件排版略有差异。
 
@@ -21,7 +23,7 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 - tusd 临时上传目录：默认 `../dachuang-data/uploads`。
 - 永久原件目录：默认 `../dachuang-data/raw`，位于 Git 项目之外；不提供删除操作。
 - 预览缓存目录：默认 `../dachuang-data/previews`，可从原件重新生成。
-- PostgreSQL 存放文件名、大小、状态、时间和 SHA-256 等元数据，使用 Docker 命名卷 `dachuang_postgres_data`。
+- PostgreSQL 存放文件元数据、段落和向量，使用 Docker 命名卷 `dachuang_postgres_data`。Ollama 模型存放在 `dachuang_ollama_models`。
 - 上传服务和页面仅绑定到本机 `127.0.0.1`。云存储接口留到后续阶段。
 
 可在 `.env` 中更改 `DATA_DIR`，将原件放到容量充足的本地磁盘。按每天 20 GB 估算，一年约新增 7.3 TB，长期保留需要持续扩容。备份时应同时备份 `DATA_DIR/raw` 和 PostgreSQL 数据；`uploads` 是未完成上传的续传数据，也建议纳入日常备份。不要使用 `docker compose down -v`，该命令会删除数据库卷。
