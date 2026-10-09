@@ -11,6 +11,6 @@ docker compose up -d --build db ollama
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check Docker Desktop.' }
 powershell -ExecutionPolicy Bypass -File scripts/install-models.ps1
 if ($LASTEXITCODE -ne 0) { throw 'Local model installation failed.' }
-docker compose up -d --build api indexer tusd
+docker compose up -d --build api indexer simulator tusd
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check Docker Desktop.' }
 Write-Host 'Local service started: http://localhost:3000/#documents'

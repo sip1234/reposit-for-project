@@ -4,13 +4,25 @@
 
 ## 启动本地文档服务
 
-需要 Docker Desktop。Windows PowerShell 在项目目录执行：
+需要 Docker Desktop，并且构建镜像时能够访问网络：`pip` 要从 PyPI 拉取依赖，`apt` 与 `npm` 同理。
+
+若本机通过代理上网，注意 **Docker 的构建容器默认不使用 Docker Desktop 中配置的代理**——拉取镜像会走代理，但构建过程中的下载会直连，表现为超时或 TLS 报错。此时需在构建前显式把代理传给构建容器，例如：
+
+```powershell
+$env:HTTP_PROXY = "http://host.docker.internal:7890"
+$env:HTTPS_PROXY = "http://host.docker.internal:7890"
+$env:NO_PROXY = "localhost,127.0.0.1,db,api,ollama,indexer,simulator,tusd"
+```
+
+`host.docker.internal` 由 Docker Desktop 解析到宿主机，即使代理只监听 `127.0.0.1` 也能从容器访问。变量名大小写两种写法建议同时设置。
+
+Windows PowerShell 在项目目录执行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-首次启动会生成不提交到 Git 的 `.env` 随机凭据、拉取镜像和本机模型并创建数据目录。模型约需数 GiB 下载空间。打开 [知识文档](http://localhost:3000/#documents) 上传文件，或在 [AI 助手](http://localhost:3000/#assistant) 的知识库页直接上传。上传完成后选择 embedding 模型并点击文件旁的“解析”，再把文件加入知识库提问。之后仍建议运行启动脚本，它会检查模型并重建代码；`docker compose down` 停止服务但保留持久数据。
+首次启动会生成不提交到 Git 的 `.env` 随机凭据、拉取镜像和本机模型并创建数据目录，共启动 `db`、`ollama`、`api`、`indexer`、`tusd`、`simulator` 六个服务。模型约需数 GiB 下载空间。打开 [知识文档](http://localhost:3000/#documents) 上传文件，或在 [AI 助手](http://localhost:3000/#assistant) 的知识库页直接上传。上传完成后选择 embedding 模型并点击文件旁的“解析”，再把文件加入知识库提问。之后仍建议运行启动脚本，它会检查模型并重建代码；`docker compose down` 停止服务但保留持久数据。
 
 文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。
 
