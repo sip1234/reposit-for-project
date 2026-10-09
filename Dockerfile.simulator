@@ -1,0 +1,11 @@
+# 机理模型仿真服务（BSM1）。基于 slim 镜像，不安装 LibreOffice 等预览依赖。
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY simulator/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+COPY simulator ./simulator
+
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "simulator/run.py"]

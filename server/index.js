@@ -9,6 +9,7 @@ const { pathToFileURL } = require('node:url');
 const { Pool } = require('pg');
 const knowledge = require('./knowledge');
 const models = require('./models');
+const simulation = require('./simulation');
 
 const root = path.resolve(__dirname, '..');
 const dataRoot = path.resolve(process.env.DATA_ROOT || path.join(root, '..', 'dachuang-data'));
@@ -304,6 +305,7 @@ const staticFiles = new Map([
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
+  ['/studio.js', ['studio.js', 'application/javascript; charset=utf-8']],
   ['/documents.js', ['documents.js', 'application/javascript; charset=utf-8']],
   ['/assistant.js', ['assistant.js', 'application/javascript; charset=utf-8']],
   ['/vendor/tus.min.js', ['node_modules/tus-js-client/dist/tus.min.js', 'application/javascript; charset=utf-8']]
@@ -320,6 +322,7 @@ async function handler(req, res) {
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
+    if (url.pathname.startsWith('/api/simulation')) return await simulation.handle(pool, req, res, url, send, readBody);
     const parseMatch = /^\/api\/documents\/([A-Za-z0-9_-]{8,256})\/parse$/.exec(url.pathname);
     if (parseMatch) return await knowledge.handleParse(pool, req, res, send, readBody, parseMatch[1]);
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
@@ -351,6 +354,7 @@ async function start() {
   await knowledge.setup(pool);
   await models.setup(pool);
   await knowledge.setupParsing(pool);
+  await simulation.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

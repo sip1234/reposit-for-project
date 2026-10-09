@@ -1,0 +1,4 @@
+# 机理模型仿真服务依赖。与 worker/requirements.txt 分开，
+# 避免把 scipy/numba 等科学计算栈装进 api 镜像。
+psycopg[binary]==3.2.10
+bsm2-python==0.0.16

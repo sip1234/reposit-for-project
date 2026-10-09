@@ -62,6 +62,17 @@ services:
       ollama:
         condition: service_started
 
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
+    depends_on:
+      db:
+        condition: service_healthy
+
   tusd:
     image: ghcr.io/tus/tusd:v2.9.2
     restart: unless-stopped
