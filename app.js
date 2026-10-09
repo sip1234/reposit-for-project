@@ -18,6 +18,7 @@ function selectPage(pageName) {
   document.body.dataset.page = pageName;
   if (pageName === 'documents') window.dispatchEvent(new Event('documents:open'));
   if (pageName === 'assistant') window.dispatchEvent(new Event('assistant:open'));
+  if (pageName === 'studio') window.dispatchEvent(new Event('studio:open'));
   history.replaceState(null, '', `#${pageName}`);
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -79,45 +80,6 @@ document.querySelectorAll('[data-ai]').forEach(button => button.addEventListener
 document.getElementById('command-ai-send').addEventListener('click', () => openAssistant(document.getElementById('command-ai-input').value));
 document.getElementById('command-ai-input').addEventListener('keydown', event => { if (event.key === 'Enter') openAssistant(event.target.value); });
 
-const parameterIds = ['aeration', 'reflux', 'dosage'];
-parameterIds.forEach(id => {
-  const input = document.getElementById(id);
-  input.addEventListener('input', () => {
-    document.getElementById(`${id}-value`).value = input.value;
-    document.getElementById('simulation-status').textContent = '参数已更改，运行仿真可刷新结果。';
-    document.getElementById('current-plan-label').textContent = '候选方案 A · 待仿真';
-  });
-});
-document.getElementById('scenario-button').addEventListener('click', () => showToast('当前原型展示一个工艺场景'));
+// 仿真推演页的参数处理与结果渲染已移至 studio.js（真实调用 BSM1 机理模型）。
+// 此处保留通用的页面切换、导航、提示与设备详情弹窗逻辑。
 
-let simulationCount = 0;
-document.getElementById('run-simulation').addEventListener('click', () => {
-  const button = document.getElementById('run-simulation');
-  button.disabled = true;
-  button.innerHTML = '◌ 正在运行模型 <span>演示中</span>';
-  document.getElementById('simulation-status').textContent = '正在比较基准工况与当前候选方案…';
-  setTimeout(() => {
-    const a = Number(document.getElementById('aeration').value);
-    const r = Number(document.getElementById('reflux').value);
-    const d = Number(document.getElementById('dosage').value);
-    const efficiency = Math.max(88.5, Math.min(96.8, 94.1 + (a - 62) * .08 + (r - 48) * .045 + (d - 26) * .035));
-    const energy = Math.max(1.56, Math.min(2.12, 1.7436 + (a - 62) * .008 - (r - 48) * .002 - (d - 26) * .001));
-    const efficiencyDiff = efficiency - 92.6;
-    const energyDiff = (energy / 1.82 - 1) * 100;
-    const compliant = efficiency >= 91 && d >= 18;
-    document.getElementById('outcome-efficiency').innerHTML = `${efficiency.toFixed(1)}<span>%</span>`;
-    document.getElementById('outcome-energy').innerHTML = `${energy.toFixed(2)}<span> kWh/m³</span>`;
-    document.getElementById('efficiency-change').innerHTML = `${efficiencyDiff >= 0 ? '↗ +' : '↘ '}${efficiencyDiff.toFixed(1)}% <span>相对基准</span>`;
-    document.getElementById('energy-change').innerHTML = `${energyDiff >= 0 ? '↗ +' : '↘ '}${energyDiff.toFixed(1)}% <span>相对基准</span>`;
-    document.getElementById('efficiency-change').classList.toggle('good', efficiencyDiff >= 0);
-    document.getElementById('energy-change').classList.toggle('good', energyDiff <= 0);
-    document.getElementById('outcome-compliance').textContent = compliant ? '预计达标' : '需进一步核查';
-    document.getElementById('outcome-compliance').style.color = compliant ? '#53dfbe' : '#f0b774';
-    document.getElementById('model-insight').textContent = compliant && efficiencyDiff > 0 && energyDiff < 0 ? '当前方案在演示模型中改善了效率与能耗。建议核对测点质量，并与基准工况复核。' : '当前方案未同时改善所有指标。建议回看参数约束与目标权重，继续比较候选方案。';
-    document.getElementById('simulation-status').textContent = '仿真已完成 · 以下结果仅用于界面演示。';
-    document.getElementById('current-plan-label').textContent = `候选方案 A · 第 ${++simulationCount} 次仿真`;
-    button.disabled = false;
-    button.innerHTML = '▶ 重新运行仿真 <span>约 2 秒</span>';
-    showToast('演示仿真已完成');
-  }, 900);
-});
