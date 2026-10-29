@@ -1,0 +1,17 @@
+{
+  "parserVersion": "structured-2.0.1",
+  "configVersion": 1,
+  "defaults": {
+    "method": "auto",
+    "strategy": "paragraph",
+    "lengthUnit": "unicode_char",
+    "targetLength": 800,
+    "maxLength": 1200,
+    "overlapLength": 100,
+    "ocrEnabled": true,
+    "ocrLanguage": "chi_sim+eng",
+    "headerContext": true,
+    "sectionContext": true,
+    "headerRows": 1
+  }
+}

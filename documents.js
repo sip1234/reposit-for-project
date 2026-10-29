@@ -16,6 +16,24 @@
   let previewToken = 0;
   let previewOpener;
   let embeddingModels = [];
+  const positive = value => Number.isInteger(value) && value > 0 ? value : null;
+  function describeSource(item) {
+    const source=item.source||{},section=item.sectionPath||[],extension=(item.extension||('.'+item.filename.split('.').pop())).toLowerCase();
+    const pages=Array.isArray(source.pages)?source.pages.filter(positive):[];
+    const page=positive(source.page)||positive(item.page)||pages[0]||null;
+    const slide=positive(source.slide),row=positive(source.row),line=positive(source.line_start)||positive(item.line);
+    const range=(start,end)=>start?`${start}${positive(end)&&end>=start&&end!==start?'–'+end:''}`:'未记录';
+    const fields={页码:page?(pages.length?pages.join('、'):String(page)):'未记录',章节路径:section.length?section.join(' / '):'未记录',
+      工作表:source.sheet||'未记录',数据行:range(row,source.row_end),文本行:range(line,source.line_end),
+      幻灯片:slide?String(slide):'未记录',段落:positive(source.paragraph)?String(source.paragraph):'未记录',表格:source.table?String(source.table):'未记录'};
+    let keys=['页码','章节路径'],note='仅支持原件预览；来源位置未记录，无法精确定位。',previewPage=null,previewLine=null;
+    if(extension==='.pdf') {previewPage=page;note=page?`尝试定位到 PDF 第 ${page} 页；不高亮页内具体文字，实际跳页由预览器支持。`:'PDF 页码未记录，将打开完整文件。';}
+    else if(extension==='.pptx'||extension==='.ppt') {keys=['幻灯片','章节路径'];previewPage=slide||page;note=previewPage?`按幻灯片或转换页编号 ${previewPage} 尝试跳转到预览 PDF；转换后的页序可能变化，不定位具体对象。`:'幻灯片编号未记录，将打开转换预览。';}
+    else if(extension==='.txt'||extension==='.csv') {keys=extension==='.csv'?['工作表','数据行']:['文本行','章节路径'];previewLine=line||(extension==='.csv'?row:null);note=previewLine?`按已记录的来源行 ${previewLine} 标记原始文本${extension==='.csv'?'；CSV 解析器记录数据字段的物理起始行，多行字段只定位起点':''}。超过前 5 MiB 的内容需下载查看。`:'文本行号未记录，将显示文件预览。';}
+    else if(extension==='.xlsx'||extension==='.xls'||extension==='.ods') {keys=['工作表','数据行'];previewPage=page;note='显示转换后的 PDF；工作表、数据行不能可靠映射为 PDF 页码，请对照来源信息或下载原件。';}
+    else if(extension==='.docx'||extension==='.doc'||extension==='.odt'||extension==='.rtf') {keys=['章节路径','段落','表格'];previewPage=page;note=page?'来源为转换 PDF 页码，尝试跳页；与 Word 原始分页可能不同。':'显示转换后的 PDF；章节和段落位置不等于物理页码，当前不支持按段落精确跳转。';}
+    return {fields,label:keys.map(key=>`${key}：${fields[key]}`).join(' · '),note,page:previewPage,line:previewLine};
+  }
 
   function bytes(size) {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GiB`;
@@ -92,9 +110,12 @@
       const index = document.createElement('td');
       const indexBadge = document.createElement('span');
       indexBadge.className = `document-status ${item.indexStatus || ''}`;
-      indexBadge.textContent = { unparsed: '未解析', pending: '等待解析', processing: '解析中', ready: `${item.indexChunks} 段已索引`, failed: '解析失败', unsupported: '暂不支持' }[item.indexStatus] || '—';
+      indexBadge.textContent = item.parseStage && item.indexStatus !== 'ready'
+        ? window.parsingStageLabel?.(item.parseStage,item.parseProgress) || item.parseStage
+        : ({ unparsed: '未解析', pending: '等待解析', processing: '解析中', ready: `${item.indexChunks} 段已索引`, failed: '解析失败', unsupported: '暂不支持' }[item.indexStatus] || '—');
       if (item.indexError) indexBadge.title = item.indexError;
       index.append(indexBadge);
+      if(item.activeVersionId && item.indexStatus!=='ready'){const available=document.createElement('small');available.textContent=` · 旧版 ${item.activeChunks} 段可用`;index.append(available);}
       const action = document.createElement('td');
       if (item.status === 'ready') {
         const preview = document.createElement('button');
@@ -134,11 +155,14 @@
       if (!response.ok) throw new Error(data.error || '预览失败');
       if (token !== previewToken) return;
       previewBody.replaceChildren();
+      const location=describeSource(item);
+      const notice=document.createElement('p');notice.className='document-preview-location';
+      notice.textContent=`${location.label}。${location.note}`;previewBody.append(notice);
       if (data.kind === 'pdf') {
         const frame = document.createElement('iframe');
         frame.className = 'document-preview-frame';
         frame.title = `${item.filename} 的内容预览`;
-        frame.src = data.url;
+        frame.src = data.url + (location.page ? `#page=${location.page}` : '');
         previewBody.append(frame);
       } else if (data.kind === 'text') {
         const textResponse = await fetch(data.url, { cache: 'no-store' });
@@ -155,6 +179,9 @@
         pre.className = 'document-preview-text';
         pre.textContent = content;
         previewBody.append(pre);
+        if(location.line){const lines=content.split('\n'),n=location.line-1;
+          if(n<lines.length){pre.replaceChildren(document.createTextNode(lines.slice(0,n).join('\n')+(n?'\n':'')));const mark=document.createElement('mark');mark.textContent=lines[n];pre.append(mark,document.createTextNode('\n'+lines.slice(n+1).join('\n')));mark.scrollIntoView({block:'center'});}
+          else notice.textContent+=' 来源行不在当前预览范围中，请下载原件查看。';}
       } else {
         previewBody.textContent = data.message || '此文件暂时无法预览，请下载原件查看。';
       }
@@ -189,11 +216,14 @@
           body: JSON.stringify({ modelId: select.value })
         });
         const data = await response.json();
+        if(data.code==='reparse_requires_ack'){button.disabled=false;update();window.openParsingDetails?.(item,button);return;}
         if (!response.ok) throw new Error(data.error || '解析请求失败');
         onDone?.();
       } catch (error) { button.textContent = error.message; button.disabled = false; }
     });
     controls.append(select, button);
+    const detail=document.createElement('button');detail.type='button';detail.className='document-preview-button';detail.textContent='解析详情 / 分块管理';
+    detail.addEventListener('click',()=>window.openParsingDetails?.(item,detail));controls.append(detail);
     return controls;
   }
 
@@ -303,12 +333,14 @@
     searchTimer = setTimeout(() => refresh(), 250);
   });
   window.openDocumentPreview = (item, opener) => openPreview(item, opener);
+  window.describeDocumentSource = describeSource;
   window.createDocumentParseControls = createParseControls;
   window.startDocumentUploads = (files, options) => addFiles(files, options);
   window.addEventListener('documents:open', () => refresh());
+  window.addEventListener('parsing:changed', () => refresh());
   document.getElementById('document-preview-close').addEventListener('click', closePreview);
   previewModal.addEventListener('click', event => { if (event.target === previewModal) closePreview(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !previewModal.hidden) closePreview(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !previewModal.hidden) {event.stopImmediatePropagation();closePreview();} });
   if (location.hash === '#documents') refresh();
   setInterval(() => { if (!document.getElementById('documents').hidden && records.length <= 100) refresh(); }, 10000);
 })();

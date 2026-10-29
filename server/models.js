@@ -75,7 +75,7 @@ async function embed(model, input) {
   const data = await postOllama('/api/embed', { model: model.model_name, input });
   const vector = data.embeddings?.[0];
   if (!Array.isArray(vector) || vector.length !== model.dimensions ||
-      vector.some(value => !Number.isFinite(value))) throw new Error('向量模型返回的维度或数值无效');
+      vector.some(value => !Number.isFinite(value)) || !vector.some(value=>value!==0)) throw new Error('向量模型返回的维度或数值无效');
   return vector;
 }
 
@@ -90,12 +90,18 @@ async function chat(model, messages) {
   const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${decrypt(model.encrypted_api_key)}` },
-    body: JSON.stringify({ model: model.model_name, stream: false, max_tokens: 900, temperature: 0.1, messages }),
+    body: JSON.stringify({ model: model.model_name, stream: false, max_tokens: 900,
+      thinking: { type: 'disabled' }, temperature: 0.1, messages }),
     signal: AbortSignal.timeout(180000)
   });
   if (!response.ok) throw new Error(`DeepSeek 请求失败 (${response.status})`);
   const data = await response.json();
-  return data.choices?.[0]?.message?.content;
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error(`DeepSeek 返回空回答 (finish_reason=${choice?.finish_reason || 'unknown'})`);
+  }
+  return content;
 }
 
 function validate(body, existing) {
@@ -126,7 +132,7 @@ async function save(pool, req, res, send, readBody, id) {
   const input = validate(body, existing);
   if (input.error) return send(res, 400, { error: input.error });
   if (existing && (existing.provider !== input.provider || existing.kind !== input.kind || existing.model_name !== input.modelName)) {
-    const used = await pool.query('SELECT 1 FROM document_parse_jobs WHERE embedding_model_id=$1 LIMIT 1', [id]);
+    const used = await pool.query('SELECT 1 FROM document_parse_jobs WHERE embedding_model_id=$1 UNION ALL SELECT 1 FROM parsing_jobs WHERE model_id=$1 LIMIT 1', [id]);
     if (used.rowCount) return send(res, 409, { error: '此模型已有解析结果；请新建模型配置，避免旧向量与新模型混用。' });
   }
   let dimensions = null;
@@ -199,6 +205,10 @@ async function handle(pool, req, res, url, send, readBody) {
       if (!model || model.active) {
         await client.query('ROLLBACK');
         return send(res, 409, { error: '当前启用的模型不能删除；请先启用同类型的其他模型。' });
+      }
+      if ((await client.query('SELECT 1 FROM parsing_jobs WHERE model_id=$1 LIMIT 1',[match[1]])).rowCount) {
+        await client.query('ROLLBACK');
+        return send(res,409,{error:'此模型被解析版本历史引用，不能删除。'});
       }
       const used = await client.query(`SELECT 1 FROM document_parse_jobs j
         LEFT JOIN document_parses parse ON parse.job_id=j.id

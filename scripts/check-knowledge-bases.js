@@ -16,8 +16,8 @@ async function request(path, method = 'GET', body) {
 
 async function run() {
   const files = (await request('/api/knowledge-bases/documents')).data.documents.filter(item => item.indexStatus === 'ready');
-  const first = files[0];
-  const second = files.find(file => file.filename !== first?.filename);
+  const first = files.find(file=>file.extension==='.docx') || files[0];
+  const second = files.find(file=>file.extension==='.pptx') || files.find(file => file.filename !== first?.filename);
   assert(first && second, 'Need two different indexed document types for this check');
   const prefix = `验证知识库-${Date.now()}`;
   for (const [name, file] of [[`${prefix}-A`, first], [`${prefix}-B`, second]]) {
@@ -62,12 +62,14 @@ async function run() {
   });
   assert(afterMove.data.sources.length > 0);
   assert(afterMove.data.sources.every(source => source.documentId === second.id));
+  if(process.env.SKIP_MODEL_ANSWER!=='1') {
   const answer = await request('/api/knowledge/query', 'POST', {
     query: '这份资料主要讲什么？', mode: 'answer', knowledgeBaseIds: [created[0]]
   });
   assert.equal(answer.status, 200);
   assert(answer.data.answer || answer.data.answerError);
   assert(answer.data.sources.every(source => source.documentId === second.id));
+  }
   const empty = await request('/api/knowledge-bases', 'POST', {
     name: `${prefix}-空`, description: '', documentIds: []
   });
@@ -77,7 +79,7 @@ async function run() {
     query: '开发计划', mode: 'search', knowledgeBaseIds: [empty.data.id]
   });
   assert.equal(emptyQuery.status, 409);
-  console.log('Knowledge-base create, scope, multi-select, edit, and Q&A checks passed.');
+  console.log(`Knowledge-base create, scope, multi-select and edit checks passed${process.env.SKIP_MODEL_ANSWER==='1'?' (LLM answer skipped)':' including Q&A'}.`);
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

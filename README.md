@@ -26,7 +26,13 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 
 文档上传支持拖放或选择多个文件，断线后重新选择同一文件可从已保存的偏移量续传。单文件上限 10 GiB。支持 doc、docx、txt、pdf、xls、xlsx、ppt、pptx、csv、rtf、odt、ods、odp。上传后服务流式计算 SHA-256 并保存原件，页面可查看状态、按文件名搜索、预览和下载原件。
 
-上传完成后不会自动分块或生成向量。用户为单个文件选择 Ollama embedding 模型并点击“解析”后，后台按页、幻灯片或段落提取文字，切成约 700–1200 字的片段，保存到 PostgreSQL `pgvector`。默认选择 `qwen3-embedding:0.6b`。相同 SHA-256 且选用同一模型的文件复用解析结果；不同模型可分别解析同一内容。支持 PDF、DOCX、PPTX、TXT、DOC、PPT、RTF、ODT、ODP、XLS、XLSX、CSV、ODS。扫描版 PDF 尚无 OCR；超过 512 MiB 的 Office 文件仍保存原件，但暂不解析。
+上传完成后先保留原件。点击文件旁的“解析详情 / 分块管理”，选择解析配置和 Ollama embedding 模型，提交后台任务。解析结果及向量保存到 PostgreSQL `pgvector`；支持扫描 PDF 的本地中英文 OCR、DOCX 标题与表格、XLSX 工作表和合并单元格、CSV 表头、PPTX 幻灯片与 TXT 行位置。长度按 Unicode 字符数计数，默认目标 800、最大 1200、重叠 100。超过 512 MiB 的文件保留原件但不解析。详细行为与限制见下文“文档解析与分块”。
+
+完整配置、版本切换、缓存与人工编辑隔离、接口、测试和已知限制见 [文档解析与分块说明](docs/parsing.md)。镜像已包含本地 Tesseract 中英文 OCR 语言包，无需云端 OCR；升级后运行启动脚本重建 `api` 和 `indexer`，数据库会自动兼容迁移。解析失败保留上一有效版本；从详情页重试或强制重新解析。
+
+分块统计/筛选、全文与原文对照、并发维护、向量失败重试及重新解析的影响范围见 [分块查看与维护](docs/chunk-maintenance.md)。文件列表入口为“解析详情 / 分块管理”；人工维护后的新解析版本不继承正文和启停状态，提交前需要明确确认。维护功能验证见 [分块维护验证记录](docs/chunk-maintenance-verification.md)。
+
+解析模块此前的测试、迁移结果及留存样例见 [解析模块验证记录](docs/parsing-verification.md)。
 
 AI 助手可创建多个知识库，每个知识库可以选择已保存但尚未解析的文件；提问时可同时选择多个知识库。后端只检索所选知识库中已解析完成的文件，按文件实际选用的 embedding 模型分别计算问题向量。未加入任何知识库的文件不会进入问答。回答由当前启用的 LLM 生成并显示引用，默认使用本地 `qwen3:4b-instruct`；请核对下方原文。
 

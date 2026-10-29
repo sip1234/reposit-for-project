@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const knowledge = require('./knowledge');
 const models = require('./models');
 const simulation = require('./simulation');
+const parsing = require('./parsing');
 
 const root = path.resolve(__dirname, '..');
 const dataRoot = path.resolve(process.env.DATA_ROOT || path.join(root, '..', 'dachuang-data'));
@@ -223,7 +224,7 @@ async function documents(req, res, url) {
     const last = rows.at(-1);
     const nextCursor = result.rows.length > 100 && last
       ? Buffer.from(JSON.stringify({ date: last.cursor_date, id: last.id })).toString('base64url') : null;
-    return send(res, 200, { documents: rows.map(publicRow), nextCursor, maxFileBytes: maxSize });
+    return send(res, 200, { documents: await parsing.attachSummaries(pool, rows.map(publicRow)), nextCursor, maxFileBytes: maxSize });
   }
   const match = /^\/api\/documents\/([A-Za-z0-9_-]{8,256})\/(download|preview|preview-file|preview-text)$/.exec(url.pathname);
   if ((req.method === 'GET' || req.method === 'HEAD') && match) {
@@ -308,6 +309,7 @@ const staticFiles = new Map([
   ['/studio.js', ['studio.js', 'application/javascript; charset=utf-8']],
   ['/documents.js', ['documents.js', 'application/javascript; charset=utf-8']],
   ['/assistant.js', ['assistant.js', 'application/javascript; charset=utf-8']],
+  ['/parsing.js', ['parsing.js', 'application/javascript; charset=utf-8']],
   ['/vendor/tus.min.js', ['node_modules/tus-js-client/dist/tus.min.js', 'application/javascript; charset=utf-8']]
 ]);
 
@@ -323,8 +325,9 @@ async function handler(req, res) {
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/simulation')) return await simulation.handle(pool, req, res, url, send, readBody);
-    const parseMatch = /^\/api\/documents\/([A-Za-z0-9_-]{8,256})\/parse$/.exec(url.pathname);
-    if (parseMatch) return await knowledge.handleParse(pool, req, res, send, readBody, parseMatch[1]);
+    if (url.pathname === '/api/parsing/configs' || /^\/api\/documents\/[^/]+\/(parse|parsing|chunks|retrieval-test)(\/\d+)?$/.test(url.pathname)) {
+      return await parsing.handle(pool, req, res, url, send, readBody);
+    }
     if (url.pathname.startsWith('/api/')) return await documents(req, res, url);
     const asset = staticFiles.get(url.pathname);
     if (req.method !== 'GET' || !asset) return send(res, 404, { error: '未找到资源' });
@@ -354,6 +357,7 @@ async function start() {
   await knowledge.setup(pool);
   await models.setup(pool);
   await knowledge.setupParsing(pool);
+  await parsing.setup(pool);
   await simulation.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {

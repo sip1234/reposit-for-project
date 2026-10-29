@@ -6,3 +6,4 @@ node_modules/
 __pycache__/
 # 本地智能体对话与进展记录，仅本机留存
 notes/
+artifacts/

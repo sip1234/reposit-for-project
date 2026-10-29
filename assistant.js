@@ -254,7 +254,9 @@
         selectedDocuments.delete(id);
         renderSelectedDocuments(); renderDocumentOptions();
       });
-      chip.append(text, remove); selectedList.append(chip);
+      const manage=document.createElement('button');manage.type='button';manage.textContent='分块管理';manage.setAttribute('aria-label',`${filename} 的分块管理`);
+      manage.addEventListener('click',()=>window.openParsingDetails?.({id,filename},manage));
+      chip.append(text,manage,remove); selectedList.append(chip);
     }
   }
 
@@ -327,11 +329,13 @@
       const card = document.createElement('article'); card.className = 'knowledge-source';
       const title = document.createElement('div'); title.className = 'knowledge-source-title';
       const label = document.createElement('strong');
-      label.textContent = `[${source.number}] ${source.filename} · ${source.locator}${source.knowledgeBaseName ? ` · ${source.knowledgeBaseName}` : ''}`;
+      label.textContent = `[${source.number}] ${source.filename} · ${source.locator}${source.modified ? ' · 人工修订，可能与原件不同' : ''}${source.knowledgeBaseName ? ` · ${source.knowledgeBaseName}` : ''}`;
       const open = document.createElement('button'); open.type = 'button';
       open.textContent = '查看原件 ↗'; open.className = 'document-preview-button';
-      open.addEventListener('click', () => window.openDocumentPreview({ id: source.documentId, filename: source.filename }, open));
-      title.append(label, open);
+      open.addEventListener('click', () => window.openDocumentPreview({ id: source.documentId, filename: source.filename,source:source.source,sectionPath:source.sectionPath }, open));
+      const chunk=document.createElement('button');chunk.type='button';chunk.textContent='查看分块';chunk.className='document-preview-button';
+      chunk.addEventListener('click',()=>window.openParsingDetails?.({id:source.documentId,filename:source.filename},chunk,{versionId:source.versionId,chunkIndex:source.chunkIndex}));
+      title.append(label,open,chunk);
       const excerpt = document.createElement('p'); excerpt.textContent = source.excerpt;
       card.append(title, excerpt); results.append(card);
     }
@@ -462,6 +466,7 @@
     finally { buttons.forEach(button => { button.disabled = false; }); }
   });
   window.addEventListener('assistant:open', () => { loadBases(); loadModels(); });
+  window.addEventListener('parsing:changed', () => { if(!basesPanel.hidden)loadDocuments(); });
   if (location.hash === '#assistant') { loadBases(); loadModels(); }
   setInterval(() => {
     if (!basesPanel.hidden) loadDocuments();

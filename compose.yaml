@@ -30,6 +30,11 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - ${DATA_DIR:-../dachuang-data}:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     depends_on:
       db:
         condition: service_healthy
@@ -40,8 +45,6 @@ services:
     restart: unless-stopped
     volumes:
       - ollama_models:/root/.ollama
-    ports:
-      - "127.0.0.1:11434:11434"
 
   indexer:
     build: .
@@ -52,13 +55,15 @@ services:
       DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
       DATA_ROOT: /data
       OLLAMA_URL: http://ollama:11434
+      OMP_THREAD_LIMIT: "2"
+      PYTHONUNBUFFERED: "1"
     volumes:
       - ${DATA_DIR:-../dachuang-data}:/data
     depends_on:
       db:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_started
 
