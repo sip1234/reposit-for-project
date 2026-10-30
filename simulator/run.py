@@ -91,6 +91,10 @@ ALTER TABLE sim_results ADD COLUMN IF NOT EXISTS schema_version integer NOT NULL
 ALTER TABLE sim_jobs DROP CONSTRAINT IF EXISTS sim_jobs_status_check;
 ALTER TABLE sim_jobs ADD CONSTRAINT sim_jobs_status_check
   CHECK (status IN ('queued','running','ready','failed','cancelled'));
+UPDATE sim_jobs SET profile_id='legacy'
+  WHERE model_version IS NULL AND profile_id='bsm1-default';
+UPDATE sim_results SET schema_version=0
+  WHERE metrics->>'profileId' IS NULL AND schema_version<>0;
 """
 
 NOTES = [
