@@ -64,19 +64,21 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 
 ### 参数映射
 
-| 界面控件 | 含义 | 范围 | 默认 |
-| --- | --- | --- | --- |
-| 第 5 格溶解氧设定值 | 由 PI 控制器调节该格 KLa 以跟踪设定值 | 0.5–4 mg/L | 2 mg/L |
-| 内回流倍数 | 好氧末端至首格的混合液回流，按平均干季流量换算 | 0–5 倍 | 3 倍 |
-| 外加碳源投加量 | 投入第 1 格（缺氧区）以强化反硝化，碳源浓度 400,000 g COD/m³ | 0–5 m³/d | 0 |
+| 界面控件 | 含义 | 硬限（API/UI） | 推荐优化区间 | 默认 |
+| --- | --- | --- | --- | --- |
+| 第 5 格溶解氧设定值 | 由 PI 控制器调节该格 KLa 以跟踪设定值 | 0.5–4 mg/L | 1.5–2.5 mg/L | 2 mg/L |
+| 内回流倍数 | 好氧末端至首格的混合液回流，按平均干季流量换算 | 0–5 倍 | 2–4 倍 | 3 倍 |
+| 外加碳源投加量 | 投入第 1 格（缺氧区）以强化反硝化，碳源浓度 400,000 g COD/m³ | 0–5 m³/d | 0–1.5 m³/d | 0 |
+
+参数来自 `shared/plant_profile.json`：`hardRanges` 是 API 与页面的硬限，`searchRanges` 是后续优化器的推荐搜索区间，`constraints.kla5` 按 BSM1 规范限幅 **0–240 d⁻¹**（不使用库内 360 的余量）。KLa5 超过规范上限时结果不再与官方基准可比。
 
 PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在评价窗口内可将溶解氧标准差控制在 0.08 mg/L 以内。
 
-仿真固定使用干季入流数据，运行 14 天并评价最后 7 天，与规范的评估方式一致。单次约需 20–30 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。
+仿真固定使用干季入流数据，运行 13.9 天（入流文件末时刻）并评价最后 7 天，与规范的评估方式一致。单次约需 20–30 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256` 与 `params_hash`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务。
 
 ### 已知局限
 
-- **出水质量指数（EQI）实测比官方参考值偏低约 8%**，原因尚未查明，因此界面暂不展示该指标，只展示已核验的能耗指标。做参数优化时需要先解决。
+- **出水质量指数（EQI）实测比官方参考值偏低约 5.8%**，原因尚未查明，因此界面暂不展示该指标，只展示已核验的能耗指标。做参数优化时需要先解决。
 - 曲线中除曝气能耗、泵送与搅拌能耗、出水氨氮均值外的指标尚未接入。
 - 仿真从默认稳态初值开始。改动参数后严格来说需要重新稳定，因此短时间窗内的前段结果含有瞬态，界面按"评价窗口"整体呈现。
 - **BSM1 是基准模型，代表一类工艺的标准算例，不是本厂真实工况。** 结果不能直接用于生产判断。
@@ -97,6 +99,7 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 ```powershell
 npm install
 npm run check
+npm run test:simulation
 node scripts/smoke-test.js
 node scripts/check-knowledge-bases.js
 node scripts/check-models.js
@@ -105,11 +108,13 @@ node scripts/check-models.js
 机理模型仿真的接口可用于自检：
 
 ```powershell
+curl http://localhost:3000/api/simulation/profile
 curl http://localhost:3000/api/simulation
 curl -X POST http://localhost:3000/api/simulation -H "Content-Type: application/json" -d "{}"
+curl -X POST http://localhost:3000/api/simulation/<id>/cancel
 ```
 
-`GET /api/simulation` 返回最近任务；`POST` 入队后用 `GET /api/simulation/<id>` 轮询进度与结果。`simulator` 首次启动会输出 JIT 预热日志，该预热是一次性成本，之后每个任务都走热路径。
+`GET /api/simulation/profile` 返回当前 plant profile、硬限和推荐搜索区间；`GET /api/simulation` 返回最近任务；`POST` 入队后用 `GET /api/simulation/<id>` 轮询进度与结果；`POST /api/simulation/<id>/cancel` 取消排队或运行中的任务。`simulator` 首次启动会输出 JIT 预热日志，该预热是一次性成本，之后每个任务都走热路径。
 
 上传集成测试会经真实 tusd 上传一个小型 TXT 文件，验证分段续传、原件保存、上传后未解析、未解析文件不参与检索，以及点击“解析”后的索引；测试文件会留在知识文档列表中。知识库集成测试会创建临时知识库，验证单库隔离、多库检索、文件成员更新和问答，然后删除临时知识库。模型集成测试会创建临时配置，验证密钥不回显、按文件选择模型及混合模型检索，最后恢复原配置。
 

@@ -2,7 +2,7 @@
 // 服务不可用时保持页面可用，并给出明确提示。
 (() => {
   const endpoint = '/api/simulation';
-  const defaults = { horizonDays: 13.9, evalDays: 7, influent: 'dry' };
+  const defaults = { horizonDays: 13.9, evalDays: 7, influent: 'dry', plantProfileId: 'bsm1-default' };
   const parameterIds = ['aeration', 'reflux', 'dosage'];
   const POLL_MS = 2000;
 
@@ -21,7 +21,8 @@
       carbonDose: Number(el('dosage').value),
       horizonDays: defaults.horizonDays,
       evalDays: defaults.evalDays,
-      influent: defaults.influent
+      influent: defaults.influent,
+      plantProfileId: defaults.plantProfileId
     };
   }
 
@@ -36,6 +37,11 @@
     const button = el('run-simulation');
     button.disabled = disabled;
     button.innerHTML = label;
+  }
+
+  function setCancelVisible(visible) {
+    const button = el('cancel-simulation');
+    if (button) button.hidden = !visible;
   }
 
   function setText(id, text) { el(id).textContent = text; }
@@ -148,7 +154,7 @@
       dot.className = 'history-dot';
       const meta = document.createElement('small');
       meta.textContent = `${new Date(job.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · ${
-        job.status === 'ready' ? '已完成' : job.status === 'failed' ? '已失败' : '进行中'}`;
+        job.status === 'ready' ? '已完成' : job.status === 'failed' ? '已失败' : job.status === 'cancelled' ? '已取消' : '进行中'}`;
       const title = document.createElement('strong');
       title.textContent = `溶解氧 ${job.params.doSetpoint} mg/L · 内回流 ${job.params.recycleRatio}×Q`;
       const detail = document.createElement('p');
@@ -163,6 +169,7 @@
     pollTimer = null;
     runningJobId = null;
     setButton('▶ 运行仿真 <span>约 30 秒</span>', false);
+    setCancelVisible(false);
     setStatus(`仿真服务不可用：${error.message}。请确认 docker compose 的 simulator 服务已启动。`);
   }
 
@@ -179,6 +186,16 @@
     try {
       const { job, result } = await requestJson(`${endpoint}/${runningJobId}`);
       if (job.status === 'failed') throw new Error(job.error || '模型计算失败');
+      if (job.status === 'cancelled') {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+        runningJobId = null;
+        setButton('▶ 运行仿真 <span>约 30 秒</span>', false);
+        setCancelVisible(false);
+        setStatus('仿真已取消。');
+        loadHistory();
+        return;
+      }
       if (job.status === 'ready' && result) {
         candidate = result;
         runCount += 1;
@@ -187,13 +204,14 @@
         pollTimer = null;
         runningJobId = null;
         setButton('▶ 重新运行仿真 <span>约 30 秒</span>', false);
-        setStatus(`仿真完成 · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
+        setCancelVisible(false);
+        setStatus(`仿真完成 · ${result.metrics.profileId} · 模型 ${result.metrics.modelVersion} · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
         renderMetrics();
         drawChart();
         loadHistory();
         return;
       }
-      setStatus(`模型正在计算… ${Math.round(Number(job.progress) * 100)}% · 约需 30 秒`);
+      setStatus(`模型正在计算… ${Math.round(Number(job.progress) * 100)}% · ${job.cancelRequested ? '正在取消…' : '约需 30 秒'}`);
       pollTimer = setTimeout(poll, POLL_MS);
     } catch (error) {
       fail(error);
@@ -211,10 +229,21 @@
         body: JSON.stringify(readParams())
       });
       runningJobId = data.job.id;
+      setCancelVisible(true);
       setStatus('任务已排队，等待模型开始计算…');
       poll();
     } catch (error) {
       fail(error);
+    }
+  }
+
+  async function cancelSimulation() {
+    if (!runningJobId) return;
+    try {
+      await requestJson(`${endpoint}/${runningJobId}/cancel`, { method: 'POST' });
+      setStatus('已请求取消，等待模型停止…');
+    } catch (error) {
+      setStatus(`取消失败：${error.message}`);
     }
   }
 
@@ -254,6 +283,7 @@
   el('scenario-button').addEventListener('click',
     () => setStatus('当前仅支持 BSM1 干季入流工况（dryinfluent）。'));
   el('run-simulation').addEventListener('click', runSimulation);
+  el('cancel-simulation').addEventListener('click', cancelSimulation);
   window.addEventListener('studio:open', initialize);
   if (location.hash === '#studio') initialize();
 })();

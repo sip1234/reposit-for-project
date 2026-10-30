@@ -1,0 +1,50 @@
+{
+  "profileId": "bsm1-default",
+  "profileVersion": 1,
+  "name": "BSM1 基准工况（默认参数）",
+  "model": "BSM1",
+  "modelImplementation": "bsm2-python==0.0.16",
+  "description": "IWA BSM1 基准：5 格活性污泥（2 缺氧 + 3 好氧）+ 10 层二沉池。参数为基准默认值；接入真实水厂时以同一结构提供校准后的 profile，不修改仿真代码。",
+  "design": {
+    "reactorVolumes": [1000, 1000, 1333, 1333, 1333],
+    "settlerLayers": 10,
+    "settlerArea": 1500,
+    "dryWeatherFlow": 18446,
+    "wastageFlow": 385,
+    "externalRecycle": 18446,
+    "internalRecycle": 55338,
+    "klaFixed": 240,
+    "kla5OpenLoop": 84
+  },
+  "hardRanges": {
+    "doSetpoint": { "min": 0.5, "max": 4.0, "step": 0.1, "default": 2.0 },
+    "recycleRatio": { "min": 0.0, "max": 5.0, "step": 0.1, "default": 3.0 },
+    "carbonDose": { "min": 0.0, "max": 5.0, "step": 0.1, "default": 0.0 }
+  },
+  "searchRanges": {
+    "doSetpoint": { "min": 1.5, "max": 2.5, "step": 0.1 },
+    "recycleRatio": { "min": 2.0, "max": 4.0, "step": 0.25 },
+    "carbonDose": { "min": 0.0, "max": 1.5, "step": 0.1 }
+  },
+  "constraints": {
+    "kla5": { "min": 0.0, "max": 240.0 },
+    "doTank5Min": 1.0,
+    "effluent": {
+      "snh": 4.0,
+      "ntot": 18.0,
+      "tss": 30.0,
+      "cod": 100.0,
+      "bod5": 10.0
+    },
+    "competition": {
+      "carbonDoseMax": 2.0,
+      "recycleRatioMax": 4.0
+    }
+  },
+  "evaluation": {
+    "horizonDays": 13.9,
+    "evalDays": 7,
+    "stepMinutes": 1,
+    "influent": "dry"
+  }
+}

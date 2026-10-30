@@ -27,6 +27,7 @@ services:
       DATA_ROOT: /data
       OLLAMA_URL: http://ollama:11434
       RERANKER_URL: http://reranker:8090
+      CODE_VERSION: ${CODE_VERSION:-dev}
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -95,6 +96,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
+      CODE_VERSION: ${CODE_VERSION:-dev}
     depends_on:
       db:
         condition: service_healthy

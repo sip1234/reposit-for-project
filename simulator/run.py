@@ -5,6 +5,7 @@
 
 模型：IWA BSM1 —— 5 格活性污泥反应池（2 缺氧 + 3 好氧）+ 10 层二沉池
 实现：bsm2_python.BSM1OL
+profile：shared/plant_profile.json（BSM1 默认参数、推荐范围与约束）
 
 已知取舍（同样写入结果的 notes 字段，便于追溯）：
 1. 不使用 bsm2_python.BSM1CL：其文档字符串明确标注 "Not validated yet!! Use at your own risk."
@@ -14,12 +15,14 @@
 5. 本类不返回污泥产量 SP，因此无法组装官方 OCI
 """
 
+import hashlib
 import json
 import os
 import signal
 import sys
 import time
 import traceback
+from pathlib import Path
 
 import numpy as np
 import psycopg
@@ -28,15 +31,21 @@ from bsm2_python import BSM1OL
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 POLL_SECONDS = 2.0
+CODE_VERSION = os.environ.get("CODE_VERSION", "dev")
+MODEL_VERSION = getattr(bsm2_python, "__version__", "unknown")
+
+PROFILE_PATH = Path(__file__).resolve().parent.parent / "shared" / "plant_profile.json"
+PROFILE = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
 
 # 平均干季流量（规范 §2.1），用于把内回流倍数换算成流量
-QI_STAB = 18446.0
-# KLa 单位 d-1。规范：第 3-4 格固定 240，第 5 格受控（库允许上限 360）
-KLA_FIXED = 240.0
-KLA5_MIN, KLA5_MAX = 0.0, 360.0
-KLA5_OFFSET = 84.0
+QI_STAB = float(PROFILE["design"]["dryWeatherFlow"])
+# KLa 单位 d-1。规范：第 3-4 格固定 240，第 5 格受控，规范上限 240（库允许 360）
+KLA_FIXED = float(PROFILE["design"]["klaFixed"])
+KLA5_MIN = float(PROFILE["constraints"]["kla5"]["min"])
+KLA5_MAX = float(PROFILE["constraints"]["kla5"]["max"])
+KLA5_OFFSET = float(PROFILE["design"]["kla5OpenLoop"])
 # PI 参数取自 bsm2-python 的 aerationcontrolinit_bsm1（基于 BSM1 调参）。
-# 位置式：KLa5 = OFFSET + KP * e + KI * ∫e dt，限幅 [0,360]，带抗积分饱和。
+# 位置式：KLa5 = OFFSET + KP * e + KI * ∫e dt，限幅 [KLA5_MIN, KLA5_MAX]，带抗积分饱和。
 # 实测该组参数把评价窗口内 DO 标准差从 0.474 降到 0.077（Kp=120/Ki=60 时），能耗仅高 0.4%。
 KP = 25.0
 KI = 12500.0
@@ -45,15 +54,20 @@ SO, SNO, SNH, TSS = 7, 8, 9, 13
 
 INFLUENT_DIR = os.path.join(os.path.dirname(bsm2_python.__file__), "data")
 INFLUENT_FILES = {"dry": "dryinfluent.csv", "rain": "raininfluent.csv"}
-MAX_HORIZON_DAYS = 13.9  # 入流文件末时刻为 13.9896 天
+MAX_HORIZON_DAYS = float(PROFILE["evaluation"]["horizonDays"])  # 入流文件末时刻为 13.9896 天
 
 SERIES_INTERVAL_MINUTES = 60  # 时间序列按小时抽样
 
 DDL = """
 CREATE TABLE IF NOT EXISTS sim_jobs (
   id uuid PRIMARY KEY,
-  status text NOT NULL CHECK (status IN ('queued','running','ready','failed')),
+  status text NOT NULL CHECK (status IN ('queued','running','ready','failed','cancelled')),
   params jsonb NOT NULL,
+  profile_id text NOT NULL DEFAULT 'bsm1-default',
+  model_version text,
+  code_version text,
+  influent_sha256 text,
+  cancel_requested boolean NOT NULL DEFAULT false,
   progress numeric NOT NULL DEFAULT 0,
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -62,19 +76,34 @@ CREATE TABLE IF NOT EXISTS sim_jobs (
 );
 CREATE TABLE IF NOT EXISTS sim_results (
   job_id uuid PRIMARY KEY REFERENCES sim_jobs(id) ON DELETE CASCADE,
+  schema_version integer NOT NULL DEFAULT 1,
   metrics jsonb NOT NULL,
   series jsonb NOT NULL,
   notes jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE sim_jobs ADD COLUMN IF NOT EXISTS profile_id text NOT NULL DEFAULT 'bsm1-default';
+ALTER TABLE sim_jobs ADD COLUMN IF NOT EXISTS model_version text;
+ALTER TABLE sim_jobs ADD COLUMN IF NOT EXISTS code_version text;
+ALTER TABLE sim_jobs ADD COLUMN IF NOT EXISTS influent_sha256 text;
+ALTER TABLE sim_jobs ADD COLUMN IF NOT EXISTS cancel_requested boolean NOT NULL DEFAULT false;
+ALTER TABLE sim_results ADD COLUMN IF NOT EXISTS schema_version integer NOT NULL DEFAULT 1;
+ALTER TABLE sim_jobs DROP CONSTRAINT IF EXISTS sim_jobs_status_check;
+ALTER TABLE sim_jobs ADD CONSTRAINT sim_jobs_status_check
+  CHECK (status IN ('queued','running','ready','failed','cancelled'));
 """
 
 NOTES = [
-    "机理模型为 IWA BSM1；数值实现采用 bsm2-python 的 BSM1OL（AE/PE/ME 已与官方参考值一致）",
-    "第 5 格溶解氧由自实现 PI 控制器调节 KLa5，KLa 单位 d-1，限幅 0-360",
+    f"机理模型：IWA BSM1；数值实现：bsm2-python {MODEL_VERSION} 的 BSM1OL（AE/PE/ME 已与官方参考值一致）",
+    f"工况 profile：{PROFILE['profileId']} · {PROFILE['name']}",
+    f"第 5 格溶解氧由自实现 PI 控制器调节 KLa5，KLa 单位 d-1，限幅 {KLA5_MIN:g}-{KLA5_MAX:g}（BSM1 规范上限）",
     "EQI 实测比官方参考值偏低约 5.8%，仅供参考，不作为达标判据",
     "外加碳源投加至第 1 格（缺氧区）",
 ]
+
+
+class SimulationCancelled(Exception):
+    """任务被用户取消。"""
 
 
 def log(*args):
@@ -83,7 +112,9 @@ def log(*args):
 
 def setup(conn):
     with conn.cursor() as cur:
-        cur.execute(DDL)
+        for statement in DDL.split(";"):
+            if statement.strip():
+                cur.execute(statement)
     conn.commit()
 
 
@@ -114,13 +145,17 @@ def warm_up():
 
 def claim(conn):
     with conn.cursor() as cur:
+        # 排队阶段就被取消的任务直接落为 cancelled，不进入计算。
+        cur.execute("""UPDATE sim_jobs SET status='cancelled', completed_at=now(),
+                       error_message='用户取消'
+                       WHERE status='queued' AND cancel_requested""")
         cur.execute("""
             UPDATE sim_jobs SET status='running', started_at=now(), progress=0
             WHERE id = (
                 SELECT id FROM sim_jobs WHERE status='queued'
                 ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
             )
-            RETURNING id, params""")
+            RETURNING id, params, profile_id""")
         row = cur.fetchone()
     conn.commit()
     return row
@@ -132,15 +167,47 @@ def set_progress(conn, job_id, value):
     conn.commit()
 
 
+def should_cancel(conn, job_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT cancel_requested FROM sim_jobs WHERE id=%s", (job_id,))
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def influent_path(weather):
+    return os.path.join(INFLUENT_DIR, INFLUENT_FILES[weather])
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def params_hash(params):
+    payload = json.dumps(params, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def validate(params):
-    horizon = float(params.get("horizonDays", 14))
+    profile_id = str(params.get("profileId", PROFILE["profileId"]))
+    if profile_id != PROFILE["profileId"]:
+        raise ValueError(f"当前仅支持 plantProfileId={PROFILE['profileId']}")
+    horizon = float(params.get("horizonDays", PROFILE["evaluation"]["horizonDays"]))
+    do_range = PROFILE["hardRanges"]["doSetpoint"]
+    recycle_range = PROFILE["hardRanges"]["recycleRatio"]
+    carbon_range = PROFILE["hardRanges"]["carbonDose"]
     values = {
+        "profileId": profile_id,
         "horizonDays": horizon,
-        "evalDays": float(params.get("evalDays", 7)),
-        "doSetpoint": float(params.get("doSetpoint", 2.0)),
-        "recycleRatio": float(params.get("recycleRatio", 3.0)),
-        "carbonDose": float(params.get("carbonDose", 0.0)),
-        "weather": str(params.get("influent", "dry")),
+        "evalDays": float(params.get("evalDays", PROFILE["evaluation"]["evalDays"])),
+        "doSetpoint": float(params.get("doSetpoint", do_range["default"])),
+        "recycleRatio": float(params.get("recycleRatio", recycle_range["default"])),
+        "carbonDose": float(params.get("carbonDose", carbon_range["default"])),
+        "weather": str(params.get("influent", PROFILE["evaluation"]["influent"])),
+        "seed": int(params.get("seed", 0)),
     }
     if values["weather"] not in INFLUENT_FILES:
         raise ValueError(f"不支持的天气文件：{values['weather']}")
@@ -149,20 +216,20 @@ def validate(params):
     # evaltime 在该库中只接受整数天（或二元素数组），故评价窗口按整天处理
     if not 1 <= round(values["evalDays"]) <= horizon:
         raise ValueError("评价窗口须为不小于 1 的整天，且不超过仿真时长")
-    if not 0.5 <= values["doSetpoint"] <= 4.0:
-        raise ValueError("溶解氧设定值须在 0.5 到 4 mg/L 之间")
-    if not 0.0 <= values["recycleRatio"] <= 5.0:
-        raise ValueError("内回流倍数须在 0 到 5 之间")
-    if not 0.0 <= values["carbonDose"] <= 5.0:
-        raise ValueError("外加碳源投加量须在 0 到 5 m3/d 之间")
+    if not do_range["min"] <= values["doSetpoint"] <= do_range["max"]:
+        raise ValueError(f"溶解氧设定值须在 {do_range['min']} 到 {do_range['max']} mg/L 之间")
+    if not recycle_range["min"] <= values["recycleRatio"] <= recycle_range["max"]:
+        raise ValueError(f"内回流倍数须在 {recycle_range['min']} 到 {recycle_range['max']} 之间")
+    if not carbon_range["min"] <= values["carbonDose"] <= carbon_range["max"]:
+        raise ValueError(f"外加碳源投加量须在 {carbon_range['min']} 到 {carbon_range['max']} m3/d 之间")
     return values
 
 
-def simulate(params, on_progress=None):
+def simulate(params, on_progress=None, should_cancel=None):
     """执行一次 BSM1 仿真，返回 (metrics, series)。"""
     cfg = validate(params)
-    model = BSM1OL(data_in=os.path.join(INFLUENT_DIR, INFLUENT_FILES[cfg["weather"]]),
-                   timestep=1 / 1440, endtime=cfg["horizonDays"],
+    data_in = influent_path(cfg["weather"])
+    model = BSM1OL(data_in=data_in, timestep=1 / 1440, endtime=cfg["horizonDays"],
                    evaltime=int(round(cfg["evalDays"])))
     model.qintr = cfg["recycleRatio"] * QI_STAB
     model.reactor1.carb = cfg["carbonDose"]
@@ -172,12 +239,15 @@ def simulate(params, on_progress=None):
     integral = 0.0
     total_steps = step_count(model)
     report_every = max(1, total_steps // 100)
+    cancel_every = max(200, total_steps // 100)
     eval_start = float(model.evaltime[0])
     sample_every = SERIES_INTERVAL_MINUTES
 
     times, so5_series, effluent_series = [], [], []
 
     for i in range(total_steps):
+        if should_cancel is not None and i % cancel_every == 0 and should_cancel():
+            raise SimulationCancelled("用户取消")
         # 第 5 格溶解氧 -> KLa5 的位置式 PI 控制
         error = cfg["doSetpoint"] - float(model.y_out5[SO])
         candidate = KLA5_OFFSET + KP * error + KI * integral
@@ -205,6 +275,14 @@ def simulate(params, on_progress=None):
     eff = model.ys_eff_all[start:end]
 
     metrics = {
+        "schemaVersion": 1,
+        "profileId": PROFILE["profileId"],
+        "profileName": PROFILE["name"],
+        "modelVersion": MODEL_VERSION,
+        "codeVersion": CODE_VERSION,
+        "paramsHash": params_hash(params),
+        "influentSha256": sha256_file(data_in),
+        "seed": cfg["seed"],
         "iqi": round(iqi, 2),
         "eqi": round(eqi, 2),
         "aerationEnergy": round(ae, 4),
@@ -223,9 +301,12 @@ def simulate(params, on_progress=None):
         "horizonDays": cfg["horizonDays"],
         "evalDays": cfg["evalDays"],
         "weather": cfg["weather"],
+        "stepMinutes": 1,
+        "kla5Max": KLA5_MAX,
         "steps": total_steps,
     }
     series = {
+        "profileId": PROFILE["profileId"],
         "time": times,
         "soTank5": so5_series,
         "effluent": effluent_series,
@@ -235,23 +316,38 @@ def simulate(params, on_progress=None):
     return metrics, series
 
 
-def run_job(conn, job_id, params):
+def run_job(conn, job_id, params, profile_id):
     log(f"任务 {job_id} 开始：{json.dumps(params, ensure_ascii=False)}")
     started = time.perf_counter()
     try:
-        metrics, series = simulate(params, lambda value: set_progress(conn, job_id, value))
+        metrics, series = simulate(
+            params,
+            lambda value: set_progress(conn, job_id, value),
+            lambda: should_cancel(conn, job_id),
+        )
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO sim_results (job_id, metrics, series, notes)
-                   VALUES (%s, %s, %s, %s)
+                """INSERT INTO sim_results (job_id, schema_version, metrics, series, notes)
+                   VALUES (%s, 1, %s, %s, %s)
                    ON CONFLICT (job_id) DO UPDATE
-                   SET metrics=EXCLUDED.metrics, series=EXCLUDED.series, notes=EXCLUDED.notes""",
+                   SET schema_version=EXCLUDED.schema_version, metrics=EXCLUDED.metrics,
+                       series=EXCLUDED.series, notes=EXCLUDED.notes""",
                 (job_id, json.dumps(metrics), json.dumps(series),
                  json.dumps(NOTES, ensure_ascii=False)))
             cur.execute("""UPDATE sim_jobs SET status='ready', progress=1, completed_at=now(),
-                           error_message=NULL WHERE id=%s""", (job_id,))
+                           error_message=NULL, profile_id=%s, model_version=%s, code_version=%s,
+                           influent_sha256=%s WHERE id=%s""",
+                        (profile_id, metrics["modelVersion"], metrics["codeVersion"],
+                         metrics["influentSha256"], job_id))
         conn.commit()
         log(f"任务 {job_id} 完成，耗时 {time.perf_counter() - started:.1f} 秒")
+    except SimulationCancelled:
+        conn.rollback()
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE sim_jobs SET status='cancelled', error_message='用户取消',
+                           completed_at=now() WHERE id=%s""", (job_id,))
+        conn.commit()
+        log(f"任务 {job_id} 已取消")
     except Exception as error:
         conn.rollback()
         log(f"任务 {job_id} 失败：{error}")
@@ -263,7 +359,7 @@ def run_job(conn, job_id, params):
 
 
 def main():
-    log("仿真服务启动")
+    log(f"仿真服务启动：profile={PROFILE['profileId']} model={MODEL_VERSION} code={CODE_VERSION}")
     conn = psycopg.connect(DATABASE_URL, autocommit=False)
     setup(conn)
     warm_up()
@@ -279,7 +375,7 @@ def main():
         if job is None:
             time.sleep(POLL_SECONDS)
             continue
-        run_job(conn, job[0], job[1])
+        run_job(conn, job[0], job[1], job[2])
 
 
 if __name__ == "__main__":

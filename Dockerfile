@@ -12,6 +12,7 @@ RUN npm ci --omit=dev
 COPY index.html styles.css app.js studio.js documents.js assistant.js parsing.js retrieval-ui.js ./
 COPY server ./server
 COPY worker ./worker
+COPY shared ./shared
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "server/index.js"]

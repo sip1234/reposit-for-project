@@ -6,6 +6,7 @@ COPY simulator/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY simulator ./simulator
+COPY shared ./shared
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "simulator/run.py"]

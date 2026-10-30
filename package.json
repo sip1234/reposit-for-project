@@ -8,7 +8,8 @@
     "test:parsing": "node scripts/test-parsing.js",
     "test:chunks": "node scripts/test-chunk-maintenance.js",
     "test:retrieval": "node scripts/test-retrieval.js",
-    "test:retrieval:unit": "node --test tests/test_retrieval_algorithms.js"
+    "test:retrieval:unit": "node --test tests/test_retrieval_algorithms.js",
+    "test:simulation": "node tests/test_simulation_profile.js"
   },
   "dependencies": {
     "pg": "^8.16.3",
