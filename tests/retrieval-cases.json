@@ -1,0 +1,34 @@
+{
+  "documents": [
+    {"label":"pump","text":"设备 P-101 是进水提升泵，额定流量为 42.8 m³/h。发生过载报警时应立即停泵，检查叶轮堵塞和电机电流，排除故障后再复位启动。严禁带故障连续运行。"},
+    {"label":"pump-near","text":"设备 P-101A 是冷却水备用泵。额定流量为 8.0 m³/h，低负荷时可待机。它不是进水提升泵，不适用 P-101 的过载复位步骤。"},
+    {"label":"turbidity","text":"测点 ST-04 位于沉淀池出水口，测量浊度，单位 NTU。浊度高于 5 NTU 时检查排泥和混凝剂投加；连续超限需要人工取样复核。"},
+    {"label":"pressure","text":"测点 ST-40 测量管道压力，单位 MPa。正常压力为 0.42 MPa。压力异常时检查阀门开度，它不测量浊度。"},
+    {"label":"oxygen","text":"生化反应池的溶解氧 DO 运行目标为 1.5–2.5 mg/L。池内氧气不足时，应增大曝气量或提高鼓风机频率；同时排查进水有机负荷增加和曝气头堵塞。"},
+    {"label":"calibration","text":"实验室溶解氧仪校准应使用空气饱和水，确认温度补偿后再清洗电极。校准步骤用于仪表质量控制，不是生化池曝气调节方案。"},
+    {"label":"ammonia","text":"出水 NH4-N 氨氮控制值为 1.5 mg/L。氨氮偏高时检查硝化菌污泥龄、池内溶解氧及温度；低温条件下可适当延长污泥龄。"},
+    {"label":"carbon","text":"反硝化缺少碳源时可增加乙酸钠投加。投加前应检测硝酸盐和 COD，依据 C/N 比调节，避免过量造成出水 COD 升高。乙酸钠不是用于提高池内溶解氧的药剂。"},
+    {"label":"sludge","text":"生化系统 SRT 污泥龄建议保持 15 d，MLSS 悬浮污泥浓度约为 3000 mg/L。排泥量过大会缩短污泥龄，并可能导致硝化性能下降。"},
+    {"label":"pac","text":"PAC 是聚合氯化铝混凝剂，用于去除水中胶体与浊度。先快速混合再缓慢絮凝，具体投加量需要烧杯试验确定。PAC 与高分子助凝剂 PAM 的作用不同。"},
+    {"label":"pam","text":"PAM 是聚丙烯酰胺高分子助凝剂，主要用于污泥脱水及增强絮体桥联。配液应避免高速剪切，它不能直接等同于 PAC 的混凝作用。"},
+    {"label":"energy","text":"鼓风曝气是本厂主要耗能环节。单位水量电耗目标为 0.35 kWh/m³，可采用变频控制和溶解氧反馈，降低低负荷时的过度供气。"},
+    {"label":"blower","text":"鼓风机 B-02 的出口压差控制值为 4.2 kPa，测点 DP-02 用于监测该数值。压差持续上升时检查空气过滤器，不应将其误读为 42 kPa。"},
+    {"label":"cip","text":"CIP means cleaning in place for the membrane system. When transmembrane pressure rises, inspect fouling and run the approved chemical cleaning procedure. Keep acid and alkaline cleaning solutions separate."},
+    {"label":"temperature","text":"冬季水温低于 12 °C 时硝化速率降低。应检查保温、增加有效污泥龄并保持稳定负荷，避免频繁冲击。"},
+    {"label":"noise","text":"日报需要记录设备名称、时间、操作人员和运行状况。设备维护记录应保存在本机知识库，值班人员每日核对数据完整性。"}
+  ],
+  "queries": [
+    {"query":"池子里的氧气不够了，应怎样调整供气？","relevant":["oxygen"],"type":"中文同义表达"},
+    {"query":"如何减少低负荷时不必要的空气供应和耗电？","relevant":["energy"],"type":"中文语义"},
+    {"query":"P-101 过载报警处理","relevant":["pump"],"type":"设备编号"},
+    {"query":"ST-04 浊度限值是多少 NTU","relevant":["turbidity"],"type":"测点编号"},
+    {"query":"DO 1.5–2.5 mg/L 的运行目标","relevant":["oxygen"],"type":"缩写数值单位"},
+    {"query":"42.8 m3/h 提升泵","relevant":["pump"],"type":"Unicode单位规范化"},
+    {"query":"NH4-N 氨氮超过 1.5 mg/L 怎么办","relevant":["ammonia"],"type":"中英文混合"},
+    {"query":"PAC 聚合氯化铝用于去除什么","relevant":["pac"],"type":"精确工艺缩写"},
+    {"query":"硝酸盐去除时没有足够有机物，应该补充哪种药剂？","relevant":["carbon"],"type":"中文语义"},
+    {"query":"B-02 DP-02 4.2 kPa","relevant":["blower"],"type":"编号数值"},
+    {"query":"What does CIP mean for membrane cleaning?","relevant":["cip"],"type":"英文术语"},
+    {"query":"SRT 15 d MLSS 3000 mg/L","relevant":["sludge"],"type":"缩写与单位"}
+  ]
+}

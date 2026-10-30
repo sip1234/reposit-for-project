@@ -11,6 +11,7 @@ const knowledge = require('./knowledge');
 const models = require('./models');
 const simulation = require('./simulation');
 const parsing = require('./parsing');
+const retrieval = require('./retrieval');
 
 const root = path.resolve(__dirname, '..');
 const dataRoot = path.resolve(process.env.DATA_ROOT || path.join(root, '..', 'dachuang-data'));
@@ -310,6 +311,7 @@ const staticFiles = new Map([
   ['/documents.js', ['documents.js', 'application/javascript; charset=utf-8']],
   ['/assistant.js', ['assistant.js', 'application/javascript; charset=utf-8']],
   ['/parsing.js', ['parsing.js', 'application/javascript; charset=utf-8']],
+  ['/retrieval-ui.js', ['retrieval-ui.js', 'application/javascript; charset=utf-8']],
   ['/vendor/tus.min.js', ['node_modules/tus-js-client/dist/tus.min.js', 'application/javascript; charset=utf-8']]
 ]);
 
@@ -324,6 +326,7 @@ async function handler(req, res) {
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
+    if (url.pathname.startsWith('/api/retrieval/')) return await retrieval.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/simulation')) return await simulation.handle(pool, req, res, url, send, readBody);
     if (url.pathname === '/api/parsing/configs' || /^\/api\/documents\/[^/]+\/(parse|parsing|chunks|retrieval-test)(\/\d+)?$/.test(url.pathname)) {
       return await parsing.handle(pool, req, res, url, send, readBody);
@@ -358,6 +361,7 @@ async function start() {
   await models.setup(pool);
   await knowledge.setupParsing(pool);
   await parsing.setup(pool);
+  await retrieval.setup(pool);
   await simulation.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {

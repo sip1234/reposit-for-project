@@ -18,13 +18,15 @@
   let nextCursor = null;
   let documentSearchTimer;
   const pendingUploadedIds = new Set();
+  const retrievalHost=document.createElement('div');document.getElementById('knowledge-form').prepend(retrievalHost);
+  const retrievalControls=window.RetrievalUI.createControls(retrievalHost);
   let configuredModels = [];
   let editingModelId = null;
 
   async function jsonRequest(url, options) {
     const response = await fetch(url, { cache: 'no-store', ...options });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '请求失败');
+    if (!response.ok) throw Object.assign(new Error(data.error || '请求失败'),{retrieval:data.retrieval,runId:data.runId});
     return data;
   }
 
@@ -51,6 +53,7 @@
     }
     if (name === 'bases') { loadModels(); loadDocuments(); }
     if (name === 'models') loadModels();
+    if (name === 'chat') retrievalControls.refresh(true);
   }
 
   function renderModels() {
@@ -60,10 +63,10 @@
     const embedding = configuredModels.find(model => model.kind === 'embedding' && model.active);
     document.getElementById('assistant-active-llm').textContent = `问答模型：${llm?.name || '未设置'}`;
     document.getElementById('assistant-active-embedding').textContent = `默认向量模型：${embedding?.name || '未设置'}`;
-    for (const kind of ['llm', 'embedding']) {
+    for (const kind of ['llm', 'embedding','reranker']) {
       const heading = document.createElement('h3');
       heading.className = 'assistant-model-group-title';
-      heading.textContent = kind === 'llm' ? 'LLM · 问答生成' : 'Embedding · 文档检索';
+      heading.textContent = kind === 'llm' ? 'LLM · 问答生成' : kind==='reranker'?'Reranker · 独立本地重排':'Embedding · 文档检索';
       list.append(heading);
       for (const model of configuredModels.filter(item => item.kind === kind)) {
         const card = document.createElement('article');
@@ -76,7 +79,7 @@
           badge.textContent = '当前使用'; row.append(badge);
         }
         const detail = document.createElement('p');
-        detail.textContent = `${model.provider === 'deepseek' ? 'DeepSeek · 在线' : 'Ollama · 本地'} / ${model.modelName}${model.dimensions ? ` · ${model.dimensions} 维` : ''}`;
+        detail.textContent = `${model.provider === 'deepseek' ? 'DeepSeek · 在线' : model.provider==='local'?'ONNX 交叉编码器 · 本地':'Ollama · 本地'} / ${model.modelName}${model.dimensions ? ` · ${model.dimensions} 维` : ''}`;
         const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'subtle-button';
         edit.textContent = '编辑设置 ↗'; edit.addEventListener('click', () => editModel(model.id));
         card.append(row, detail, edit); list.append(card);
@@ -100,12 +103,18 @@
     const provider = document.getElementById('assistant-model-provider').value;
     const kind = document.getElementById('assistant-model-kind');
     const deepseek = provider === 'deepseek';
-    kind.querySelector('[value="embedding"]').disabled = deepseek;
+    const local=provider==='local';
+    kind.querySelector('[value="reranker"]')?.setAttribute('aria-label','独立重排模型');
+    kind.querySelector('[value="reranker"]').disabled=!local;
+    kind.querySelector('[value="llm"]').disabled=local;
+    if(local)kind.value='reranker';else if(kind.value==='reranker')kind.value='llm';
+    kind.querySelector('[value="embedding"]').disabled = deepseek||local;
     if (deepseek) kind.value = 'llm';
     document.getElementById('assistant-model-deepseek-options').hidden = !deepseek;
-    document.getElementById('assistant-model-identifier').placeholder = deepseek ? 'deepseek-flash 或 deepseek-v4-pro' :
+    document.getElementById('assistant-model-identifier').placeholder = local?'cross-encoder/mmarco-mMiniLMv2-L12-H384-v1':deepseek ? 'deepseek-flash 或 deepseek-v4-pro' :
       kind.value === 'embedding' ? '例如：qwen3-embedding:0.6b' : '例如：qwen3:4b-instruct';
     document.getElementById('assistant-model-provider-hint').hidden = deepseek;
+    document.getElementById('assistant-model-provider-hint').textContent=local?'独立重排由检索配置明确选择，无需切换默认模型；请先启动可选 reranker 服务并等待资源就绪。':'Ollama 模型需先在本地下载；保存时会检查模型是否可用。';
   }
 
   function newModel() {
@@ -138,7 +147,7 @@
       document.getElementById(field).disabled = model.active;
     }
     document.getElementById('assistant-model-key').placeholder = model.hasApiKey ? '留空则保留已有密钥' : '输入 API 密钥';
-    document.getElementById('assistant-model-activate').hidden = model.active;
+    document.getElementById('assistant-model-activate').hidden = model.active||model.kind==='reranker';
     document.getElementById('assistant-model-delete').hidden = model.active;
     document.getElementById('assistant-model-message').textContent = '';
     renderModels();
@@ -309,38 +318,11 @@
     }
   }
 
-  function renderResults(data, mode) {
+  function renderResults(data,mode){
     results.replaceChildren();
-    if (mode === 'answer') {
-      const heading = document.createElement('h3'); heading.textContent = '文档回答';
-      const answer = document.createElement('p'); answer.className = 'knowledge-answer';
-      answer.textContent = data.answer || data.answerError || '暂无回答';
-      results.append(heading, answer);
-    }
-    const heading = document.createElement('h3');
-    heading.textContent = `相关段落 · ${data.sources?.length || 0}`;
-    results.append(heading);
-    if (!data.sources?.length) {
-      const empty = document.createElement('p'); empty.className = 'knowledge-hint';
-      empty.textContent = '选中的知识库中没有找到段落。';
-      results.append(empty);
-    }
-    for (const source of data.sources || []) {
-      const card = document.createElement('article'); card.className = 'knowledge-source';
-      const title = document.createElement('div'); title.className = 'knowledge-source-title';
-      const label = document.createElement('strong');
-      label.textContent = `[${source.number}] ${source.filename} · ${source.locator}${source.modified ? ' · 人工修订，可能与原件不同' : ''}${source.knowledgeBaseName ? ` · ${source.knowledgeBaseName}` : ''}`;
-      const open = document.createElement('button'); open.type = 'button';
-      open.textContent = '查看原件 ↗'; open.className = 'document-preview-button';
-      open.addEventListener('click', () => window.openDocumentPreview({ id: source.documentId, filename: source.filename,source:source.source,sectionPath:source.sectionPath }, open));
-      const chunk=document.createElement('button');chunk.type='button';chunk.textContent='查看分块';chunk.className='document-preview-button';
-      chunk.addEventListener('click',()=>window.openParsingDetails?.({id:source.documentId,filename:source.filename},chunk,{versionId:source.versionId,chunkIndex:source.chunkIndex}));
-      title.append(label,open,chunk);
-      const excerpt = document.createElement('p'); excerpt.textContent = source.excerpt;
-      card.append(title, excerpt); results.append(card);
-    }
+    if(mode==='answer'){const heading=document.createElement('h3');heading.textContent='文档回答';const answer=document.createElement('p');answer.className='knowledge-answer';answer.textContent=data.answer||data.answerError||'暂无回答';results.append(heading,answer);}
+    window.RetrievalUI.renderSources(results,data);
   }
-
   tabButtons.forEach(button => button.addEventListener('click', () => setTab(button.dataset.assistantTab)));
   document.getElementById('assistant-manage-bases').addEventListener('click', () => setTab('bases'));
   document.getElementById('assistant-manage-models').addEventListener('click', () => setTab('models'));
@@ -459,13 +441,13 @@
     try {
       const data = await jsonRequest('/api/knowledge/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, mode, knowledgeBaseIds: [...selectedBaseIds] })
+        body: JSON.stringify({ query, mode, knowledgeBaseIds: [...selectedBaseIds],...retrievalControls.read() })
       });
       renderResults(data, mode);
-    } catch (error) { results.textContent = error.message; }
+    } catch (error) { window.RetrievalUI.renderError(results,error); }
     finally { buttons.forEach(button => { button.disabled = false; }); }
   });
-  window.addEventListener('assistant:open', () => { loadBases(); loadModels(); });
+  window.addEventListener('assistant:open', () => { loadBases(); loadModels(); retrievalControls.refresh(true); });
   window.addEventListener('parsing:changed', () => { if(!basesPanel.hidden)loadDocuments(); });
   if (location.hash === '#assistant') { loadBases(); loadModels(); }
   setInterval(() => {

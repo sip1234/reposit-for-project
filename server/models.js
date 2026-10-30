@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 
 const ollamaUrl = (process.env.OLLAMA_URL || 'http://ollama:11434').replace(/\/$/, '');
+// Internal local service only. Model configuration cannot redirect documents to arbitrary URLs.
+const rerankerUrl = (process.env.RERANKER_URL || 'http://reranker:8090').replace(/\/$/, '');
 const defaultLlmId = '00000000-0000-4000-8000-000000000001';
 const defaultEmbeddingId = '00000000-0000-4000-8000-000000000002';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -30,6 +32,13 @@ async function setup(pool) {
     created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (provider <> 'deepseek' OR (kind='llm' AND encrypted_api_key IS NOT NULL))
   )`);
+  await pool.query(`ALTER TABLE ai_models DROP CONSTRAINT IF EXISTS ai_models_provider_check;
+    ALTER TABLE ai_models ADD CONSTRAINT ai_models_provider_check CHECK(provider IN ('ollama','deepseek','local'));
+    ALTER TABLE ai_models DROP CONSTRAINT IF EXISTS ai_models_kind_check;
+    ALTER TABLE ai_models ADD CONSTRAINT ai_models_kind_check CHECK(kind IN ('llm','embedding','reranker'));
+    ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS resource_revision text;`);
+  if(!(await pool.query("SELECT 1 FROM pg_constraint WHERE conrelid='ai_models'::regclass AND conname='ai_models_reranker_provider_check'")).rowCount)
+    await pool.query("ALTER TABLE ai_models ADD CONSTRAINT ai_models_reranker_provider_check CHECK((provider='local')=(kind='reranker'))");
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS ai_models_one_active_kind ON ai_models(kind) WHERE active');
   await pool.query(`INSERT INTO ai_models (id,name,provider,kind,model_name,active)
     SELECT $1,'本地 Qwen3 4B','ollama','llm','qwen3:4b-instruct',true
@@ -51,7 +60,7 @@ async function setup(pool) {
 function publicModel(row) {
   return { id: row.id, name: row.name, provider: row.provider, kind: row.kind,
     modelName: row.model_name, dimensions: row.dimensions, active: row.active,
-    hasApiKey: Boolean(row.encrypted_api_key) };
+    hasApiKey: Boolean(row.encrypted_api_key),resourceRevision:row.resource_revision };
 }
 
 async function activeModel(pool, kind) {
@@ -70,9 +79,9 @@ async function postOllama(endpoint, body, timeout = 120000) {
   return data;
 }
 
-async function embed(model, input) {
+async function embed(model, input, options={}) {
   if (model.provider !== 'ollama') throw new Error('当前向量模型不受支持');
-  const data = await postOllama('/api/embed', { model: model.model_name, input });
+  const data = await postOllama('/api/embed', { model: model.model_name, input },options.timeoutMs||120000);
   const vector = data.embeddings?.[0];
   if (!Array.isArray(vector) || vector.length !== model.dimensions ||
       vector.some(value => !Number.isFinite(value)) || !vector.some(value=>value!==0)) throw new Error('向量模型返回的维度或数值无效');
@@ -111,9 +120,11 @@ function validate(body, existing) {
   const modelName = String(body?.modelName || '').trim();
   const apiKey = typeof body?.apiKey === 'string' ? body.apiKey.trim() : '';
   if (!name || name.length > 80) return { error: '显示名称须为 1 至 80 字。' };
-  if (!['ollama', 'deepseek'].includes(provider) || !['llm', 'embedding'].includes(kind)) return { error: '模型提供方或类型无效。' };
+  if (!['ollama', 'deepseek','local'].includes(provider) || !['llm', 'embedding','reranker'].includes(kind)) return { error: '模型提供方或类型无效。' };
+  if((provider==='local')!==(kind==='reranker'))return {error:'重排模型只能使用独立的本地交叉编码服务；不能作为 embedding 或 LLM 使用。'};
   if (provider === 'deepseek' && kind !== 'llm') return { error: 'DeepSeek 当前仅接入 LLM 问答模型。' };
-  if (!modelName || modelName.length > 120 || !/^[\w.:-]+$/.test(modelName)) return { error: '模型标识格式无效。' };
+  if (!modelName || modelName.length > 120 || !(provider==='local'?/^[\w./:-]+$/:/^[\w.:-]+$/).test(modelName)) return { error: '模型标识格式无效。' };
+  if(provider==='local'&&apiKey)return {error:'本地重排不使用 API 密钥。'};
   if (provider === 'deepseek' && !['deepseek-flash', 'deepseek-v4-pro'].includes(modelName)) return { error: '请选择 DeepSeek 支持的模型标识。' };
   if (apiKey.length > 512) return { error: 'API 密钥过长。' };
   if (provider === 'deepseek' && !apiKey && !existing?.encrypted_api_key) return { error: '请填写 DeepSeek API 密钥。' };
@@ -134,8 +145,16 @@ async function save(pool, req, res, send, readBody, id) {
   if (existing && (existing.provider !== input.provider || existing.kind !== input.kind || existing.model_name !== input.modelName)) {
     const used = await pool.query('SELECT 1 FROM document_parse_jobs WHERE embedding_model_id=$1 UNION ALL SELECT 1 FROM parsing_jobs WHERE model_id=$1 LIMIT 1', [id]);
     if (used.rowCount) return send(res, 409, { error: '此模型已有解析结果；请新建模型配置，避免旧向量与新模型混用。' });
+    const history=await pool.query("SELECT 1 FROM retrieval_configs WHERE config->>'rerankerModelId'=$1 LIMIT 1",[id]);
+    if(history.rowCount)return send(res,409,{error:'此重排模型被保存配置引用，请新建模型以保留历史可追溯性。'});
   }
   let dimensions = null;
+  let resourceRevision=null;
+  if(input.kind==='reranker'){
+    try{const r=await fetch(`${rerankerUrl}/health`,{signal:AbortSignal.timeout(10000)});const d=await r.json();
+      if(!r.ok||!d.ready||d.model!==input.modelName||typeof d.revision!=='string')return send(res,422,{error:`本地重排资源尚不可用或标识不匹配：${d.error||d.model||'请启动 reranker 服务'}`});resourceRevision=d.revision;
+    }catch{return send(res,503,{error:'无法连接本地重排服务，请启用 Compose reranker profile 并等待模型资源就绪。'});}
+  }
   if (input.kind === 'embedding') {
     try {
       const data = await postOllama('/api/embed', { model: input.modelName, input: '模型维度测试' });
@@ -157,12 +176,12 @@ async function save(pool, req, res, send, readBody, id) {
   const modelId = id || crypto.randomUUID();
   if (id) {
     await pool.query(`UPDATE ai_models SET name=$2, provider=$3, kind=$4, model_name=$5,
-      encrypted_api_key=$6, dimensions=$7, updated_at=now() WHERE id=$1`,
-    [id, input.name, input.provider, input.kind, input.modelName, encrypted, dimensions]);
+      encrypted_api_key=$6, dimensions=$7, resource_revision=$8,updated_at=now() WHERE id=$1`,
+    [id, input.name, input.provider, input.kind, input.modelName, encrypted, dimensions,resourceRevision]);
   } else {
-    await pool.query(`INSERT INTO ai_models (id,name,provider,kind,model_name,encrypted_api_key,dimensions)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [modelId, input.name, input.provider, input.kind, input.modelName, encrypted, dimensions]);
+    await pool.query(`INSERT INTO ai_models (id,name,provider,kind,model_name,encrypted_api_key,dimensions,resource_revision)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [modelId, input.name, input.provider, input.kind, input.modelName, encrypted, dimensions,resourceRevision]);
   }
   return send(res, id ? 200 : 201, { id: modelId });
 }
@@ -210,6 +229,7 @@ async function handle(pool, req, res, url, send, readBody) {
         await client.query('ROLLBACK');
         return send(res,409,{error:'此模型被解析版本历史引用，不能删除。'});
       }
+      if((await client.query("SELECT 1 FROM retrieval_configs WHERE config->>'rerankerModelId'=$1 UNION ALL SELECT 1 FROM retrieval_runs WHERE config_snapshot->'config'->>'rerankerModelId'=$1 LIMIT 1",[match[1]])).rowCount){await client.query('ROLLBACK');return send(res,409,{error:'此重排模型被检索配置或历史记录引用，不能删除。'});}
       const used = await client.query(`SELECT 1 FROM document_parse_jobs j
         LEFT JOIN document_parses parse ON parse.job_id=j.id
         WHERE j.embedding_model_id=$1 AND (parse.document_id IS NOT NULL OR j.status='processing') LIMIT 1`, [match[1]]);
@@ -227,4 +247,4 @@ async function handle(pool, req, res, url, send, readBody) {
   return send(res, 405, { error: '不支持此请求' });
 }
 
-module.exports = { setup, handle, activeModel, embed, chat, postOllama };
+module.exports = { setup, handle, activeModel, embed, chat, postOllama,rerankerUrl };

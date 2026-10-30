@@ -1,0 +1,8 @@
+FROM python:3.12-slim-bookworm
+ENV PYTHONUNBUFFERED=1 HF_HOME=/models TOKENIZERS_PARALLELISM=false
+WORKDIR /app
+COPY reranker/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY reranker/service.py ./service.py
+EXPOSE 8090
+CMD ["python", "service.py"]

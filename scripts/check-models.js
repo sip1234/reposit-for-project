@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const baseUrl = process.env.APP_URL || 'http://localhost:3000';
 const created = [];
 const original = new Map();
+const switchDefaults = process.env.SKIP_DEFAULT_ACTIVATION !== '1';
 let temporaryBase = null;
 let switchedDocument = null;
 
@@ -56,9 +57,11 @@ async function run() {
   });
   assert.equal(llm.status, 201, llm.raw);
   created.push(llm.data.id);
-  assert.equal((await request(`/api/models/${llm.data.id}/activate`, 'POST')).status, 200);
-  assert.equal((await request('/api/models')).data.models.find(item => item.id === llm.data.id).active, true);
-  assert.equal((await request(`/api/models/${original.get('llm').id}/activate`, 'POST')).status, 200);
+  if(switchDefaults){
+    assert.equal((await request(`/api/models/${llm.data.id}/activate`, 'POST')).status, 200);
+    assert.equal((await request('/api/models')).data.models.find(item => item.id === llm.data.id).active, true);
+    assert.equal((await request(`/api/models/${original.get('llm').id}/activate`, 'POST')).status, 200);
+  }
 
   const embedding = await request('/api/models', 'POST', {
     name: 'Temporary local embedding', provider: 'ollama', kind: 'embedding',
@@ -69,9 +72,9 @@ async function run() {
   assert.equal(embedding.data.id.length, 36);
   const dimensions = (await request('/api/models')).data.models.find(item => item.id === embedding.data.id).dimensions;
   assert.equal(dimensions, original.get('embedding').dimensions);
-  assert.equal((await request(`/api/models/${embedding.data.id}/activate`, 'POST')).status, 200);
+  if(switchDefaults)assert.equal((await request(`/api/models/${embedding.data.id}/activate`, 'POST')).status, 200);
   assert.equal((await request('/api/knowledge-bases/documents')).data.documents.filter(item => item.indexStatus === 'ready').length, indexed);
-  assert.equal((await request(`/api/models/${original.get('embedding').id}/activate`, 'POST')).status, 200);
+  if(switchDefaults)assert.equal((await request(`/api/models/${original.get('embedding').id}/activate`, 'POST')).status, 200);
   const files = (await request('/api/knowledge-bases/documents')).data.documents;
   const first = files.find(item => item.filename.startsWith('解析模块验证-') && item.indexStatus === 'ready');
   const second = files.find(item => item.extension === '.pptx' && item.indexStatus === 'ready');
@@ -86,13 +89,15 @@ async function run() {
   assert.equal(base.status, 201, base.raw);
   temporaryBase = base.data.id;
   const query = await request('/api/knowledge/query', 'POST', {
-    query: '项目的研究目标与开发计划', mode: 'search', knowledgeBaseIds: [temporaryBase]
+    query: '项目的研究目标与开发计划', mode: 'search', knowledgeBaseIds: [temporaryBase],
+    retrievalConfig:{mode:'vector',minVectorSimilarity:-1,dedup:'none',finalCount:20,maxPerDocument:20}
   });
   assert.equal(query.status, 200, query.raw);
   assert(query.data.sources.length>0);
   assert(query.data.sources.every(source=>[first.id,second.id].includes(source.documentId)));
   const grouped=await request(`/api/documents/${first.id}/retrieval-test`,'POST',{
-    query:'项目的研究目标与开发计划',knowledgeBaseIds:[temporaryBase]
+    query:'项目的研究目标与开发计划',knowledgeBaseIds:[temporaryBase],
+    retrievalConfig:{mode:'vector',minVectorSimilarity:-1,dedup:'none',finalCount:20,maxPerDocument:20}
   });
   assert.equal(grouped.status,200,grouped.raw);
   assert(grouped.data.results.flatMap(group=>group.chunks).some(source=>source.document_id===first.id));
@@ -111,7 +116,7 @@ run().catch(error => { console.error(error); process.exitCode = 1; }).finally(as
         { modelId: switchedDocument.originalModelId, acknowledgeEdits: true })).status, 202);
     } catch (error) { console.error('Could not restore original document model', error); process.exitCode = 1; }
   }
-  for (const model of original.values()) {
+  for (const model of switchDefaults ? original.values() : []) {
     try {
       const current = (await request('/api/models')).data.models.find(item => item.id === model.id);
       if (current && !current.active) await request(`/api/models/${model.id}/activate`, 'POST');

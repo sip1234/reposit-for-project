@@ -267,31 +267,9 @@ async function handle(pool,req,res,url,send,readBody) {
       stats,activeStats,editsInherited:false});
   }
   if(action==='retrieval-test' && req.method==='POST') {
-    const body=await readBody(req); const query=String(body.query||'').trim();
-    if(!query || query.length>500) throw new Error('测试问题须为 1–500 字');
-    let ids=[docId];
-    if(!body.knowledgeBaseIds&&!doc.active_parse_version_id) return send(res,409,{error:'此文件尚无有效解析版本，请先解析或选择已有知识库'});
-    if(body.knowledgeBaseIds) {
-      if(!Array.isArray(body.knowledgeBaseIds)||!body.knowledgeBaseIds.length||body.knowledgeBaseIds.length>100||body.knowledgeBaseIds.some(x=>!uuid.test(x))) throw new Error('知识库范围无效');
-      const existing=(await pool.query('SELECT count(*)::int AS n FROM knowledge_bases WHERE id=ANY($1::uuid[])',[body.knowledgeBaseIds])).rows[0].n;
-      if(existing!==body.knowledgeBaseIds.length) throw new Error('知识库不存在或选择了重复知识库，请刷新');
-      ids=(await pool.query('SELECT DISTINCT document_id FROM knowledge_base_documents WHERE knowledge_base_id=ANY($1::uuid[])',[body.knowledgeBaseIds])).rows.map(x=>x.document_id);
-    }
-    const used=(await pool.query(`SELECT DISTINCT m.* FROM documents d JOIN parsing_versions v ON v.id=d.active_parse_version_id JOIN parsing_jobs j ON j.id=v.job_id
-      JOIN ai_models m ON m.id=j.model_id WHERE d.id=ANY($1::text[])`,[ids])).rows;
-    const results=[];
-    for(const model of used) {
-      let vector;
-      try {vector=await models.embed(model,query);}catch(error){return send(res,503,{error:`检索向量化失败：${error.message}`});}
-      const rows=(await pool.query(`SELECT d.id AS document_id,d.filename,d.extension,v.id AS version_id,c.chunk_index,c.content,c.source,c.section_path,c.content_type,c.revision,
-        1-(c.embedding <=> $1::vector) AS score FROM documents d JOIN parsing_versions v ON v.id=d.active_parse_version_id
-        JOIN parsing_jobs j ON j.id=v.job_id JOIN parsing_version_chunks c ON c.version_id=v.id
-        WHERE d.id=ANY($2::text[]) AND j.model_id=$3 AND c.enabled AND c.embedding_state='ready' AND c.revision=c.vector_revision
-        AND vector_norm(c.embedding)>0 AND vector_dims(c.embedding)=$4
-        ORDER BY c.embedding <=> $1::vector LIMIT 10`,[`[${vector.join(',')}]`,ids,model.id,model.dimensions])).rows;
-      results.push({modelId:model.id,modelName:model.name,chunks:rows});
-    }
-    return send(res,200,{results,note:results.length?'按向量模型分别展示余弦分数，不将不同模型分数直接比较；只检索当前有效版本且向量已更新的启用分块':'所选范围暂无已完成的有效解析版本'});
+    const body=await readBody(req,128*1024);
+    if(!body?.knowledgeBaseIds&&!doc.active_parse_version_id)return send(res,409,{error:'此文件尚无有效解析版本，请先解析或选择知识库'});
+    return send(res,200,await require('./retrieval').test(pool,docId,body));
   }
   const id=url.searchParams.get('version') || doc.active_parse_version_id;
   if(id&&!uuid.test(id)) throw httpError(400,'解析版本标识无效','invalid_version');
@@ -368,7 +346,7 @@ async function safeHandle(pool,req,res,url,send,readBody) {
   catch(error) {
     if(error.code&&!error.httpStatus) console.error('Parsing database error', error);
     return send(res,error.httpStatus||(error.code?500:400),{error:error.code&&!error.httpStatus?'解析数据库操作失败，请检查服务日志':error.message,
-      code:error.reason,...error.details});
+      code:error.reason,runId:error.runId,retrieval:error.retrieval,...error.details});
   }
 }
 module.exports={setup,handle:safeHandle,requestParse,attachSummaries,validateConfig,manifest};

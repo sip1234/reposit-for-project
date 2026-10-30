@@ -32,6 +32,8 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 
 分块统计/筛选、全文与原文对照、并发维护、向量失败重试及重新解析的影响范围见 [分块查看与维护](docs/chunk-maintenance.md)。文件列表入口为“解析详情 / 分块管理”；人工维护后的新解析版本不继承正文和启停状态，提交前需要明确确认。维护功能验证见 [分块维护验证记录](docs/chunk-maintenance-verification.md)。
 
+AI 助手和分块管理的检索验证现共用真实的关键词／向量／混合检索流程，使用中文字符词项 GIN 索引与 RRF 排名融合；支持配置快照、来源保留去重、最终资格复查及可选本地交叉编码重排。重排默认关闭，不复用 LLM 密钥；启用前运行 `docker compose --profile reranker up -d --build reranker`，等待公开模型下载和加载完成，再在模型管理添加“本地 ONNX · 独立重排”模型。详细配置、实际分数含义、资源限制和接口见 [混合检索与重排](docs/hybrid-retrieval.md)，人工标注评测及降级测试见 [检索验证记录](docs/hybrid-retrieval-verification.md)。
+
 解析模块此前的测试、迁移结果及留存样例见 [解析模块验证记录](docs/parsing-verification.md)。
 
 AI 助手可创建多个知识库，每个知识库可以选择已保存但尚未解析的文件；提问时可同时选择多个知识库。后端只检索所选知识库中已解析完成的文件，按文件实际选用的 embedding 模型分别计算问题向量。未加入任何知识库的文件不会进入问答。回答由当前启用的 LLM 生成并显示引用，默认使用本地 `qwen3:4b-instruct`；请核对下方原文。
@@ -40,7 +42,7 @@ AI 助手可创建多个知识库，每个知识库可以选择已保存但尚�
 
 在 AI 助手的“模型管理”分页添加、编辑和切换模型。LLM 可使用 Ollama 或 DeepSeek，embedding 当前使用 Ollama。添加 Ollama 模型前先通过 `docker compose exec ollama ollama pull <模型名>` 下载；保存 embedding 模型时会调用一次本地 embedding 接口以确定向量维度。DeepSeek 可添加 `deepseek-flash` 或 `deepseek-v4-pro`，需要在页面输入 API 密钥；密钥经 AES-256-GCM 加密保存在 PostgreSQL，界面和列表接口不会回显。加密密钥由本地 `.env` 的 `HOOK_TOKEN` 派生，迁移数据库时应同时保留该值。
 
-每种模型类型启用一个默认模型。切换 LLM 立即用于后续问答；启用 DeepSeek 后，提问内容及检索出的段落会发送至 DeepSeek 接口。切换默认 embedding 模型只影响之后手动解析时的默认选项，已有文件保留各自的模型和索引。不同维度的向量可共存；跨模型检索结果按余弦相似度合并。在线 API 需要本机网络可连接其服务。
+LLM 和 embedding 各有一个默认模型；独立重排由检索配置明确选择。切换 LLM 立即用于后续问答；启用 DeepSeek 后，提问内容及检索出的段落会发送至 DeepSeek 接口。切换默认 embedding 模型只影响之后手动解析时的默认选项，已有文件保留各自的模型和索引。不同维度的向量可共存；各实际模型分别召回，再通过 RRF 排名融合或统一交叉编码重排组织，原始余弦不跨模型直接混排。在线问答 API 需要本机网络可连接其服务。
 
 PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先显示前 5 MiB；Office 和 OpenDocument 文件由本地 LibreOffice 转为 PDF 预览，转换结果缓存在 `DATA_DIR/previews`，原件不变。Office 文件超过 100 MiB 时请下载原件查看。预览转换可能与原软件排版略有差异。
 

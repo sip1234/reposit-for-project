@@ -24,7 +24,7 @@
     <div class="parsing-toolbar" id="parsing-chunk-heading"><h3>分块内容</h3><input id="parsing-search" maxlength="200" type="search" aria-label="搜索分块正文" placeholder="搜索分块正文"><span id="parsing-count"></span></div>
     <div class="parsing-toolbar"><label>启用状态<select id="parsing-enabled"><option value="all">全部</option><option value="enabled">启用</option><option value="disabled">停用</option></select></label><label>向量状态<select id="parsing-state"><option value="all">全部</option><option value="pending">等待更新</option><option value="processing">处理中</option><option value="ready">更新成功</option><option value="failed">更新失败</option></select></label></div>
     <p id="parsing-edit-scope"></p><section id="parsing-detail" class="parsing-chunk parsing-detail" hidden aria-label="分块全文与维护"></section><div id="parsing-chunks"></div><div class="parsing-toolbar"><button id="parsing-prev" class="subtle-button">上一页</button><span id="parsing-page"></span><button id="parsing-next" class="subtle-button">下一页</button></div>
-    <section class="parsing-test"><h3>检索验证</h3><p>仅检索当前有效版本；不同向量模型分别展示分数。</p><form id="parsing-test-form"><label>检索范围<select id="parsing-test-scope"><option value="file">当前文件</option><option value="kb">所选知识库</option></select></label><label id="parsing-test-kb-label" hidden>知识库（可多选）<select id="parsing-test-kbs" multiple></select></label><label>测试问题<input id="parsing-test-query" maxlength="500" required placeholder="例如：溶解氧控制范围是多少？"></label><button class="button-primary">运行检索</button></form><div id="parsing-test-results" role="status"></div></section>
+    <section class="parsing-test"><h3>检索验证</h3><p>仅检索当前有效版本；使用共用混合检索与重排流程，保留各阶段分数。</p><form id="parsing-test-form"><div id="parsing-retrieval-controls"></div><label>检索范围<select id="parsing-test-scope"><option value="file">当前文件</option><option value="kb">所选知识库</option></select></label><label id="parsing-test-kb-label" hidden>知识库（可多选）<select id="parsing-test-kbs" multiple></select></label><label>测试问题<input id="parsing-test-query" maxlength="500" required placeholder="例如：溶解氧控制范围是多少？"></label><button class="button-primary" type="submit">运行检索</button></form><div id="parsing-test-results" role="status"></div></section>
     </div></div></section>`;
   document.body.append(panel);
   const el = id => document.getElementById(`parsing-${id}`);
@@ -33,13 +33,14 @@
   let item,opener,presets=[],versionId=null,page=1,total=0,current=null,detail=null,editing=false,saving=false,conflicted=false,generation=0,sequence=0,selection=0,signature='',queryTimer,previousOverflow='',pendingIndex=null;
   let vectorWatch=null;
   const form=el('form');
+  const retrievalControls=window.RetrievalUI.createControls(el('retrieval-controls'),{diagnostics:true});
   const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const node=(tag,text,className)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;};
   const button=(text,fn,disabled=false)=>{const b=node('button',text,'subtle-button');b.type='button';b.disabled=disabled;b.onclick=fn;return b;};
   const time=value=>value?new Date(value).toLocaleString():'未记录';
   const sourceInfo=(chunk,doc=item)=>window.describeDocumentSource?.({...doc,source:chunk.source||{},sectionPath:chunk.section_path||[]})||{label:'未记录',note:'无法精确定位。',fields:{来源:'未记录'}};
   function message(text){el('message').textContent=text;}
-  async function request(url,options){const response=await fetch(url,{cache:'no-store',...options});const data=await response.json();if(!response.ok){const error=new Error(data.error||`HTTP ${response.status}`);Object.assign(error,{status:response.status,code:data.code});throw error;}return data;}
+  async function request(url,options){const response=await fetch(url,{cache:'no-store',...options});const data=await response.json();if(!response.ok){const error=new Error(data.error||`HTTP ${response.status}`);Object.assign(error,{status:response.status,code:data.code,retrieval:data.retrieval,runId:data.runId});throw error;}return data;}
   function guarded(){if(editing||saving){message(saving?'正在保存，请等待结果。':'正文编辑尚未结束。请先保存或取消编辑，再切换、刷新或关闭。');el('detail').scrollIntoView({block:'nearest'});return true;}return false;}
   function navigation(){for(const id of ['version','search','enabled','state','refresh','run','force'])el(id).disabled=editing||saving;el('prev').disabled=editing||saving||page<=1;el('next').disabled=editing||saving||page*20>=total;}
   function fill(config){for(const [key,value]of Object.entries(config)){const input=form.elements.namedItem(key);if(input){if(input.type==='checkbox')input.checked=value;else input.value=value;}}}
@@ -131,6 +132,7 @@
   }
   async function open(doc,from,options={}){
     if(!panel.hidden&&guarded())return false;
+    retrievalControls.refresh(true);
     clearTimeout(queryTimer);generation++;item=doc;opener=from;versionId=options.versionId||null;pendingIndex=Number.isInteger(options.chunkIndex)?options.chunkIndex:null;page=pendingIndex===null?1:Math.floor(pendingIndex/20)+1;detail=null;current=null;vectorWatch=null;editing=saving=conflicted=false;signature='';
     if(panel.hidden){previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';document.querySelectorAll('main').forEach(main=>main.inert=true);}panel.hidden=false;
     el('title').textContent=`解析与分块 · ${doc.filename}`;el('chunks').textContent='加载中…';el('detail').hidden=true;el('test-results').replaceChildren();el('search').value='';el('enabled').value=el('state').value='all';el('ack').checked=false;message('');el('close').focus();navigation();const session=generation;
@@ -152,10 +154,9 @@
   el('version').onchange=()=>{if(guarded())return;versionId=el('version').value;changeView();};el('enabled').onchange=el('state').onchange=()=>changeView();
   el('search').oninput=()=>{clearTimeout(queryTimer);queryTimer=setTimeout(()=>changeView(),250);};el('prev').onclick=()=>{if(guarded())return;page--;changeView(false);};el('next').onclick=()=>{if(guarded())return;page++;changeView(false);};
   el('test-scope').onchange=()=>{el('test-kb-label').hidden=el('test-scope').value!=='kb';};
-  el('test-form').onsubmit=async event=>{event.preventDefault();const target=el('test-results'),submit=event.currentTarget.querySelector('button'),session=generation;submit.disabled=true;target.textContent='正在检索…';
-    try{const body={query:el('test-query').value};if(el('test-scope').value==='kb')body.knowledgeBaseIds=[...el('test-kbs').selectedOptions].map(o=>o.value);const result=await request(`/api/documents/${item.id}/retrieval-test`,json('POST',body));if(session!==generation)return;target.replaceChildren(node('p',result.note));
-      for(const group of result.results){target.append(node('h4',`${group.modelName} · ${group.modelId}`));if(!group.chunks.length)target.append(node('p','没有可检索的启用分块。'));for(const c of group.chunks){const box=node('article',undefined,'parsing-chunk'),doc={id:c.document_id,filename:c.filename,extension:c.extension};box.append(node('strong',`${c.filename} / #${c.chunk_index+1} · 分数 ${Number(c.score).toFixed(4)}`),node('p',`${sourceInfo(c,doc).label} · 章节：${c.section_path?.join(' / ')||'未记录'}${c.revision>0?' · 人工修订，可能与原件不同':''}`),node('pre',c.content));const tools=node('div',undefined,'parsing-toolbar');tools.append(button('查看此分块',()=>open(doc,el('test-query'),{versionId:c.version_id,chunkIndex:c.chunk_index})),button('查看原文 ↗',()=>preview(c,doc)));box.append(tools);target.append(box);}}
-    }catch(error){if(session===generation)target.textContent=error.message;}finally{submit.disabled=false;}
+  el('test-form').onsubmit=async event=>{event.preventDefault();const target=el('test-results'),submit=event.submitter||event.currentTarget.querySelector('button[type="submit"]'),session=generation;submit.disabled=true;target.textContent='正在召回、融合并按配置重排…';
+    try{const body={query:el('test-query').value,...retrievalControls.read()};if(el('test-scope').value==='kb')body.knowledgeBaseIds=[...el('test-kbs').selectedOptions].map(o=>o.value);const result=await request(`/api/documents/${item.id}/retrieval-test`,json('POST',body));if(session!==generation)return;target.replaceChildren();window.RetrievalUI.renderSources(target,result);
+    }catch(error){if(session===generation)window.RetrievalUI.renderError(target,error);}finally{submit.disabled=false;}
   };
   setInterval(()=>{if(!panel.hidden&&item&&!saving)load();},3000);
   window.openParsingDetails=open;window.parsingStageLabel=(stage,progress)=>`${stages[stage]||stage}${progress!==undefined?' '+progress+'%':''}`;

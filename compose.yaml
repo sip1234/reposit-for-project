@@ -26,6 +26,7 @@ services:
       HOOK_TOKEN: ${HOOK_TOKEN:?Run scripts/start.ps1 first}
       DATA_ROOT: /data
       OLLAMA_URL: http://ollama:11434
+      RERANKER_URL: http://reranker:8090
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -67,6 +68,26 @@ services:
       ollama:
         condition: service_started
 
+  reranker:
+    profiles: ["reranker"]
+    build:
+      context: .
+      dockerfile: Dockerfile.reranker
+    restart: unless-stopped
+    environment:
+      HF_HOME: /models
+      RERANK_THREADS: "2"
+      HF_HUB_DOWNLOAD_TIMEOUT: "120"
+    volumes:
+      - reranker_models:/models
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health',timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 60
+
   simulator:
     build:
       context: .
@@ -103,3 +124,4 @@ services:
 volumes:
   postgres_data:
   ollama_models:
+  reranker_models:

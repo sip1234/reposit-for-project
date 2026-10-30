@@ -1,5 +1,7 @@
 # 文档解析与分块使用说明
 
+检索已升级为两处页面共用的关键词／向量／混合与可选重排流程，详见 [混合检索与重排](hybrid-retrieval.md)。本页的解析、维护与版本隔离规则继续生效，关键词路径同样排除停用或向量未就绪分块。
+
 ## 启动与依赖
 
 沿用 PostgreSQL/pgvector、Ollama、Node API 和 Python worker。首次构建需要访问 Debian、PyPI 和 npm 软件源。镜像新增 `openpyxl==3.1.5`、Tesseract CLI，以及 Debian `tesseract-ocr-eng`、`tesseract-ocr-chi-sim` 语言包；OCR 无需在线 API 或额外下载大模型。PyMuPDF、python-docx、python-pptx 和 LibreOffice 沿用固定依赖。OCR 默认 200 DPI，每页最长 120 秒；`OMP_THREAD_LIMIT=2` 限制 OCR 线程。
@@ -91,4 +93,4 @@ Python 用临时文件生成普通/扫描混合 PDF、DOCX 标题表格、XLSX �
 - XLSX 合并单元格扩展父单元格值；不计算公式，优先读取缓存值，无缓存时保留“公式未计算”提示。每工作表最多 500000 个网格单元；表头与单位行需通过 headerRows 明确配置，不自动识别同一工作表内多个独立数据表。CSV 多行字段仍视为同一数据记录。
 - DOC、XLS、ODT、ODS 等旧格式经 LibreOffice 转为 PDF，页码来自转换预览，不能保证原表格结构。建议上传 DOCX/XLSX 原生格式。
 - PDF 和 PPTX 预览尝试按记录页码跳转，TXT 可按物理文本行定位；CSV 按解析器记录的物理起始行尝试定位，多行字段仅定位起点；XLSX 的工作表/行与 DOCX 段落无法可靠映射到转换 PDF 的页码，详情中保留其精确结构位置供核对。
-- 向量更新和解析按单 worker 执行。历史版本和缓存暂不自动回收；没有新增团队权限、多租户、混合检索或 reranker，这些属于后续模块。
+- 向量更新和解析按单 worker 执行。历史版本和缓存暂不自动回收；没有新增团队权限或多租户。混合检索与独立本地重排现已接入，见本页开头的新模块说明。
