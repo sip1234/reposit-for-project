@@ -123,6 +123,7 @@ POST /api/optimization/<id>/cancel
 npm install
 npm run check
 npm run test:simulation
+npm run test:e2e
 docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" simulator python /scripts/check-eqi.py
 New-Item -ItemType Directory -Force artifacts/simulation | Out-Null
 docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" -v "${PWD}/artifacts/simulation:/app/artifacts" simulator python /scripts/morris-sensitivity.py --trajectories 4
@@ -134,6 +135,10 @@ node scripts/check-models.js
 ```
 
 `check-eqi.py` 是 BSM1 开环官方基准的 golden test：先稳定到稳态、再跑 13.9 天动态，断言 AE/PE/ME 对齐官方、IQI 偏差 <0.2%、EQI 偏差 <1%。当前实测 EQI 6732.8（+0.49%）。
+
+`test:e2e` 用 `playwright-core` 驱动本机 Chrome/Edge，实际点击运行仿真、检查 8 个指标卡、下载 CSV/JSON、提交 4 次优化并检查 Pareto 表；需要本机服务已启动，截图写入 `artifacts/e2e/studio.png`。默认浏览器路径可用 `E2E_BROWSER` 覆盖。当前实测通过：8 个指标卡、CSV/JSON 下载成功、优化 4 次得到 3 行 Pareto，截图已生成。
+
+`.github/workflows/ci.yml` 在 push/PR 时跑 `npm ci`、`npm run check`、`npm run test:simulation` 和 Python 语法编译；完整 E2E 依赖 Compose 与浏览器，保留为本地/发布前验证，不放进默认 CI。
 
 `morris-sensitivity.py` 对 DO 设定值、内回流倍数、外加碳源做 Morris 初等效应分析：默认 4 条轨迹 × 4 点 = 16 次仿真，约 7 分钟；结果写入 `artifacts/simulation/morris.json`，包含 μ、μ*、σ 和逐样本指标。可用 `--load 0.7/1.0/1.3` 对高低负荷分别分析。
 
@@ -150,6 +155,16 @@ node scripts/check-models.js
 | 低 EQI | 21,901 | 5,621 | 2.27 | 2.88 | 1.29 |
 
 这 6 次只用于验证脚本与 Pareto 逻辑，不代表 24 次收敛结果；最低 OCI 仍是基准，说明在约束内继续降 OCI 需要更多评估或调整目标权重。
+
+**24 次正式运行**（`--evaluations 24 --initial 6`，618.5 秒，dry/load 1.0，seed 42）：24 个可行、Pareto 12 个，结果在 `artifacts/optimization/optimization.json`。
+
+| 方案 | OCI | EQI | DO | 回流 | 碳源 | NH4 | Ntot |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 基准 | 18,403 | 6,106 | 2.00 | 3.00 | 0.00 | 2.44 | 16.84 |
+| **最低 OCI** | **18,262** | 6,040 | 1.58 | 2.39 | 0.00 | 2.59 | 16.24 |
+| **最低 EQI** | 22,331 | **5,585** | 2.24 | 2.99 | 1.45 | 2.61 | 13.40 |
+
+最低 OCI 比基准降低 **0.76%**（泵送能耗 343 对比 388 kWh/d，曝气 3631 对比 3731），DO5 最低 1.385 仍满足 ≥1.0；最低 EQI 比基准降低 **8.5%**，代价是 OCI 上升约 21%（主要是碳源成本）。Pareto 前沿完整覆盖“低 OCI—低 EQI”的连续权衡。
 
 机理模型仿真的接口可用于自检：
 

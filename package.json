@@ -4,15 +4,19 @@
   "version": "0.2.0",
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/knowledge.js && node --check server/parsing.js && node --check server/models.js && node --check server/simulation.js && node --check server/optimization.js && node --check app.js && node --check studio.js && node --check documents.js && node --check assistant.js && node --check parsing.js && node --check server/retrieval.js && node --check retrieval-ui.js",
+    "check": "node --check server/index.js && node --check server/knowledge.js && node --check server/parsing.js && node --check server/models.js && node --check server/simulation.js && node --check server/optimization.js && node --check app.js && node --check studio.js && node --check documents.js && node --check assistant.js && node --check parsing.js && node --check server/retrieval.js && node --check retrieval-ui.js && node --check scripts/e2e-studio.js",
     "test:parsing": "node scripts/test-parsing.js",
     "test:chunks": "node scripts/test-chunk-maintenance.js",
     "test:retrieval": "node scripts/test-retrieval.js",
     "test:retrieval:unit": "node --test tests/test_retrieval_algorithms.js",
-    "test:simulation": "node tests/test_simulation_profile.js"
+    "test:simulation": "node tests/test_simulation_profile.js",
+    "test:e2e": "node scripts/e2e-studio.js"
   },
   "dependencies": {
     "pg": "^8.16.3",
     "tus-js-client": "^4.3.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.1"
   }
 }
