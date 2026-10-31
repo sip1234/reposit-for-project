@@ -3,6 +3,7 @@
 (() => {
   const endpoint = '/api/simulation';
   const defaults = { horizonDays: 13.9, evalDays: 7, influent: 'dry', plantProfileId: 'bsm1-default' };
+  let scenario = defaults.influent;
   const parameterIds = ['aeration', 'reflux', 'dosage'];
   const POLL_MS = 2000;
 
@@ -21,14 +22,15 @@
       carbonDose: Number(el('dosage').value),
       horizonDays: defaults.horizonDays,
       evalDays: defaults.evalDays,
-      influent: defaults.influent,
+      influent: scenario,
       plantProfileId: defaults.plantProfileId
     };
   }
 
-  function isBaselineParams(params) {
+  function isBaselineParams(params, weather = scenario) {
     return Number(params.doSetpoint) === 2 && Number(params.recycleRatio) === 3 &&
-      Number(params.carbonDose) === 0 && Number(params.evalDays) === defaults.evalDays;
+      Number(params.carbonDose) === 0 && Number(params.evalDays) === defaults.evalDays &&
+      (params.influent || 'dry') === weather;
   }
 
   function setStatus(text) { el('simulation-status').textContent = text; }
@@ -71,6 +73,19 @@
       const y = height - ((value - yMin) / span) * height;
       return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(' ');
+  }
+
+  function clearResult() {
+    el('baseline-path').setAttribute('d', '');
+    el('candidate-path').setAttribute('d', '');
+    el('candidate-point').style.display = 'none';
+    el('studio-chart-x').replaceChildren();
+    el('outcome-efficiency').innerHTML = '—<span> kWh/d</span>';
+    el('outcome-energy').innerHTML = '—<span> kWh/d</span>';
+    el('outcome-compliance').textContent = '—';
+    el('compliance-change').className = 'outcome-change neutral';
+    el('compliance-change').innerHTML = '限值 4 g N/m³ <span>待复核</span>';
+    setText('model-insight', '已切换场景，运行仿真刷新结果。');
   }
 
   function drawChart() {
@@ -137,7 +152,10 @@
       `${metrics.doTank5Mean} mg/L（设定 ${metrics.doSetpoint}，波动 ${metrics.doTank5Min}–${metrics.doTank5Max}）；` +
       `曝气能耗 ${Number(metrics.aerationEnergy).toFixed(1)} kWh/d；` +
       `出水氨氮均值 ${snh.toFixed(2)} g N/m³；EQI ${Number(metrics.eqi).toFixed(0)}` +
-      `（${metrics.stabilized ? '已稳态初始化' : '未稳态'}；闭环参考 6123 / 开环参考 6700）。` +
+      `（${metrics.stabilized ? '已稳态初始化' : '未稳态'}；闭环参考 6123 / 开环参考 6700）；` +
+      `OCI ${Number(metrics.oci || 0).toFixed(0)}（SP 估算）；Ntot ${Number(metrics.effluentNtotMean || 0).toFixed(2)}、TSS ${Number(metrics.effluentTssMean || 0).toFixed(2)} g/m³；` +
+      `SNH/Ntot 超标 ${Number(metrics.violations?.snh?.percent || 0).toFixed(1)}%/${Number(metrics.violations?.ntot?.percent || 0).toFixed(1)}%；` +
+      `单位水量能耗 ${Number(metrics.energyPerM3 || 0).toFixed(3)} kWh/m³。` +
       `以上为 IWA BSM1 基准模型的模拟结果，不代表本厂实际工况。`);
 
     setText('current-plan-label', `候选方案 ${String.fromCharCode(65 + (runCount % 26))} · 第 ${runCount} 次仿真`);
@@ -159,7 +177,7 @@
       const title = document.createElement('strong');
       title.textContent = `溶解氧 ${job.params.doSetpoint} mg/L · 内回流 ${job.params.recycleRatio}×Q`;
       const detail = document.createElement('p');
-      detail.textContent = `外加碳源 ${job.params.carbonDose} m³/d · 评价 ${job.params.evalDays} 天`;
+      detail.textContent = `${job.params.influent === 'rain' ? '雨季' : '干季'} · 外加碳源 ${job.params.carbonDose} m³/d · 评价 ${job.params.evalDays} 天`;
       entry.append(dot, meta, title, detail);
       timeline.append(entry);
     }
@@ -200,7 +218,7 @@
       if (job.status === 'ready' && result) {
         candidate = result;
         runCount += 1;
-        if (!baseline && isBaselineParams(job.params)) baseline = result;
+        if (!baseline && isBaselineParams(job.params, job.params.influent || scenario)) baseline = result;
         clearTimeout(pollTimer);
         pollTimer = null;
         runningJobId = null;
@@ -259,7 +277,7 @@
     try {
       const data = await requestJson(endpoint);
       renderHistory(data.jobs || []);
-      const base = (data.jobs || []).find(job => job.status === 'ready' && isBaselineParams(job.params));
+      const base = (data.jobs || []).find(job => job.status === 'ready' && isBaselineParams(job.params, scenario));
       if (base) {
         const detail = await requestJson(`${endpoint}/${base.id}`);
         if (detail.result) { baseline = detail.result; drawChart(); }
@@ -281,8 +299,15 @@
     });
   }
 
-  el('scenario-button').addEventListener('click',
-    () => setStatus('当前仅支持 BSM1 干季入流工况（dryinfluent）。'));
+  el('scenario-button').addEventListener('click', () => {
+    scenario = scenario === 'dry' ? 'rain' : 'dry';
+    el('scenario-button').innerHTML = `BSM1 · ${scenario === 'dry' ? '干季' : '雨季'}工况 <span>⌄</span>`;
+    baseline = null;
+    candidate = null;
+    clearResult();
+    setStatus(`已切换到 BSM1 ${scenario === 'dry' ? '干季' : '雨季'}入流，运行仿真刷新结果。`);
+    initialize();
+  });
   el('run-simulation').addEventListener('click', runSimulation);
   el('cancel-simulation').addEventListener('click', cancelSimulation);
   window.addEventListener('studio:open', initialize);

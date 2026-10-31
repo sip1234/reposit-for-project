@@ -20,6 +20,7 @@ import json
 import os
 import signal
 import sys
+import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -28,6 +29,7 @@ import numpy as np
 import psycopg
 import bsm2_python
 from bsm2_python import BSM1OL
+from bsm2_python.bsm2.init import asm1init_bsm1 as asm1init
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 POLL_SECONDS = 2.0
@@ -50,7 +52,7 @@ KLA5_OFFSET = float(PROFILE["design"]["kla5OpenLoop"])
 KP = 25.0
 KI = 12500.0
 
-SO, SNO, SNH, TSS = 7, 8, 9, 13
+SI, SS, XI, XS, XBH, XBA, XP, SO, SNO, SNH, SND, XND, SALK, TSS, Q, TEMP = range(16)
 
 INFLUENT_DIR = os.path.join(os.path.dirname(bsm2_python.__file__), "data")
 INFLUENT_FILES = {"dry": "dryinfluent.csv", "rain": "raininfluent.csv"}
@@ -101,7 +103,8 @@ NOTES = [
     f"机理模型：IWA BSM1；数值实现：bsm2-python {MODEL_VERSION} 的 BSM1OL（AE/PE/ME 已与官方参考值一致）",
     f"工况 profile：{PROFILE['profileId']} · {PROFILE['name']}",
     f"第 5 格溶解氧由自实现 PI 控制器调节 KLa5，KLa 单位 d-1，限幅 {KLA5_MIN:g}-{KLA5_MAX:g}（BSM1 规范上限）",
-    "EQI 实测比官方参考值偏低约 5.8%，仅供参考，不作为达标判据",
+    "EQI 已在稳态初始化后验证：开环对 6700 约 +0.49%、默认闭环对 6123 约 -0.28%",
+    "OCI 的 SP 由 Qw×TSS_underflow + Qe×TSS_effluent 估算，未计污泥库存变化；EC 按 400 kg COD/m3 换算",
     "外加碳源投加至第 1 格（缺氧区）",
 ]
 
@@ -179,7 +182,33 @@ def should_cancel(conn, job_id):
 
 
 def influent_path(weather):
-    return os.path.join(INFLUENT_DIR, INFLUENT_FILES[weather])
+    """Return the influent file, repairing a known upstream rain CSV bug.
+
+    bsm2-python 0.0.16 的 raininfluent.csv 把 Q 写成“千位用点”的格式：
+    "21.477" 表示 21477，"30.044.50" 表示 30044.50。BSM1 需要数值型 Q，
+    因此只修第 15 列（Q），并缓存修复后的文件；不修改安装包内的原始数据。
+    """
+    source = os.path.join(INFLUENT_DIR, INFLUENT_FILES[weather])
+    if weather != "rain":
+        return source, False
+    repaired = Path(tempfile.gettempdir()) / "bsm1-raininfluent-fixed-v2.csv"
+    if not repaired.is_file():
+        fixed_fields = 0
+        with open(source, encoding="utf-8") as src, open(repaired, "w", encoding="utf-8", newline="") as dst:
+            for line in src:
+                parts = line.rstrip("\n").split(",")
+                if len(parts) > 15:
+                    q = parts[15]
+                    if q.count(".") > 1:
+                        whole, decimal = q.rsplit(".", 1)
+                        parts[15] = whole.replace(".", "") + "." + decimal
+                        fixed_fields += 1
+                    elif q.count(".") == 1 and float(q) < 1000:
+                        parts[15] = q.replace(".", "")
+                        fixed_fields += 1
+                dst.write(",".join(parts) + "\n")
+        log(f"入流修复：raininfluent.csv 修复 {fixed_fields} 个 Q 字段，缓存到 {repaired}")
+    return str(repaired), True
 
 
 def sha256_file(path):
@@ -233,10 +262,32 @@ def validate(params):
     return values
 
 
+def violation_stats(values, limit, step_days):
+    over = values > limit
+    days = float(np.sum(over) * step_days)
+    percent = float(np.mean(over) * 100) if len(over) else 0.0
+    transitions = int(np.sum((~over[:-1]) & over[1:])) if len(over) > 1 else 0
+    if len(over) and bool(over[0]):
+        transitions += 1
+    return {"days": round(days, 3), "percent": round(percent, 2), "count": transitions, "limit": limit}
+
+
+def quality_terms(eff):
+    """Return Kjeldahl N, total N, COD and BOD5e for the effluent window."""
+    kj = (eff[:, SNH] + eff[:, SND] + eff[:, XND]
+          + asm1init.PAR1[17] * (eff[:, XBH] + eff[:, XBA])
+          + asm1init.PAR1[18] * (eff[:, XP] + eff[:, XI]))
+    ntot = kj + eff[:, SNO]
+    cod = (eff[:, SS] + eff[:, SI] + eff[:, XS] + eff[:, XI]
+           + eff[:, XBH] + eff[:, XBA] + eff[:, XP])
+    bod5 = 0.25 * (eff[:, SS] + eff[:, XS] + (1 - asm1init.PAR1[16]) * (eff[:, XBH] + eff[:, XBA]))
+    return kj, ntot, cod, bod5
+
+
 def simulate(params, on_progress=None, should_cancel=None):
     """执行一次 BSM1 仿真，返回 (metrics, series)。"""
     cfg = validate(params)
-    data_in = influent_path(cfg["weather"])
+    data_in, influent_repaired = influent_path(cfg["weather"])
     model = BSM1OL(data_in=data_in, timestep=1 / 1440, endtime=cfg["horizonDays"],
                    evaltime=int(round(cfg["evalDays"])))
     model.qintr = cfg["recycleRatio"] * QI_STAB
@@ -283,6 +334,16 @@ def simulate(params, on_progress=None, should_cancel=None):
     end = min(int(model.eval_idx[1]) + 1, len(model.y_out5_all))
     so5 = model.y_out5_all[start:end, SO]
     eff = model.ys_eff_all[start:end]
+    ys_out = model.ys_out_all[start:end]
+    kj, ntot, cod, bod5 = quality_terms(eff)
+    q = eff[:, Q]
+    step_days = 1 / 1440
+    sp_samples = (PROFILE["design"]["wastageFlow"] * ys_out[:, TSS] + q * eff[:, TSS]) / 1000
+    sp = float(np.mean(sp_samples))
+    external_carbon = float(cfg["carbonDose"] * 400.0)  # 400,000 g COD/m3 -> 400 kg COD/m3
+    oci = ae + pe + me + 5 * sp + 5 * external_carbon
+    treated_volume = float(np.mean(q) * cfg["evalDays"])
+    limits = PROFILE["constraints"]["effluent"]
 
     metrics = {
         "schemaVersion": 1,
@@ -292,15 +353,37 @@ def simulate(params, on_progress=None, should_cancel=None):
         "codeVersion": CODE_VERSION,
         "paramsHash": params_hash(params),
         "influentSha256": sha256_file(data_in),
+        "influentFile": os.path.basename(data_in),
+        "influentRepaired": influent_repaired,
         "seed": cfg["seed"],
         "iqi": round(iqi, 2),
         "eqi": round(eqi, 2),
         "aerationEnergy": round(ae, 4),
         "pumpingEnergy": round(pe, 4),
         "mixingEnergy": round(me, 4),
+        "energyTotal": round(ae + pe + me, 4),
+        "energyPerM3": round((ae + pe + me) / treated_volume, 5) if treated_volume else None,
+        "treatedVolume": round(treated_volume, 1),
+        "oci": round(oci, 2),
+        "sludgeProduction": round(sp, 2),
+        "sludgeProductionEstimated": True,
+        "externalCarbon": round(external_carbon, 2),
         "effluentSnhMean": round(float(np.mean(eff[:, SNH])), 4),
         "effluentTssMean": round(float(np.mean(eff[:, TSS])), 4),
         "effluentSnoMean": round(float(np.mean(eff[:, SNO])), 4),
+        "effluentNtotMean": round(float(np.mean(ntot)), 4),
+        "effluentCodMean": round(float(np.mean(cod)), 4),
+        "effluentBod5Mean": round(float(np.mean(bod5)), 4),
+        "snhP95": round(float(np.percentile(eff[:, SNH], 95)), 4),
+        "ntotP95": round(float(np.percentile(ntot, 95)), 4),
+        "tssP95": round(float(np.percentile(eff[:, TSS], 95)), 4),
+        "violations": {
+            "snh": violation_stats(eff[:, SNH], limits["snh"], step_days),
+            "ntot": violation_stats(ntot, limits["ntot"], step_days),
+            "tss": violation_stats(eff[:, TSS], limits["tss"], step_days),
+            "cod": violation_stats(cod, limits["cod"], step_days),
+            "bod5": violation_stats(bod5, limits["bod5"], step_days),
+        },
         "doSetpoint": cfg["doSetpoint"],
         "doTank5Mean": round(float(np.mean(so5)), 3),
         "doTank5Min": round(float(np.min(so5)), 3),

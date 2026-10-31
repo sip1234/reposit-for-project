@@ -72,6 +72,10 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 
 参数来自 `shared/plant_profile.json`：`hardRanges` 是 API 与页面的硬限，`searchRanges` 是后续优化器的推荐搜索区间，`constraints.kla5` 按 BSM1 规范限幅 **0–240 d⁻¹**（不使用库内 360 的余量）。KLa5 超过规范上限时结果不再与官方基准可比。
 
+仿真场景可在“干季 / 雨季”之间切换。上游 `raininfluent.csv` 把 Q 的千位写成了点（如 `21.477` 表示 21477，`30.044.50` 表示 30044.50），仿真器运行时只修 Q 列并缓存结果，不修改安装包原件；结果中 `influentRepaired=true`。
+
+指标包括 AE/PE/ME、OCI、EQI/IQI、出水 SNH/SNO/Ntot/TSS/COD/BOD5 均值、SNH/Ntot/TSS 的 95% 分位、五项出水限值的超限天数/占比/次数，以及单位水量能耗。OCI 的 SP 由 `Qw×TSS_underflow + Qe×TSS_effluent` 估算，未计污泥库存变化，因此 OCI 为估算值。
+
 PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在评价窗口内可将溶解氧标准差控制在 0.08 mg/L 以内。
 
 仿真固定使用干季入流数据。默认先用开环 KLa5=84 稳定到稳态（约 20 秒），再运行 13.9 天动态并评价最后 7 天；单次总计约 30–45 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256`、`params_hash` 与 `stabilized`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务；请求可用 `stabilize` 覆盖默认稳态初始化。
@@ -79,7 +83,9 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 ### 已知局限
 
 - **EQI 已完成基准验证**：开环 + 稳态初始化 6732.8，对官方 6700 差 **+0.49%**；默认闭环 PI + 稳态初始化 6106.1，对闭环参考 6123 差 **-0.28%**。此前 5970/6324 的偏低来自“从默认初值直接跑、未先稳定”，不是 EQI 公式错误。自定义控制器或参数下仍应按同一评价协议复核。
-- 曲线中除曝气能耗、泵送与搅拌能耗、出水氨氮均值外的指标尚未接入；EQI 已显示在“模型解读”中。
+- **OCI 的 SP 是估算值**：用 `Qw×TSS_underflow + Qe×TSS_effluent`，未计污泥库存变化；需要严格 OCI 时应补全 SP 计算。
+- **雨季入流有上游格式问题**：`raininfluent.csv` 的 Q 使用点作千位分隔符，运行时修复 1,344 个 Q 字段；修复结果缓存，不改安装包。
+- 曲线中除曝气能耗、泵送与搅拌能耗、出水氨氮均值外的指标尚未接入独立卡片；EQI/OCI/Ntot/TSS/超标比例目前显示在“模型解读”文本中。
 - 默认稳态初始化使用开环 KLa5=84；若候选 DO 设定值偏离 2.0，前段仍有控制器过渡，评价窗口内已按整体呈现。
 - **BSM1 是基准模型，代表一类工艺的标准算例，不是本厂真实工况。** 结果不能直接用于生产判断。
 - 上游库存在 `simtime` 与 `timesteps` 长度不一致的问题，`simulator/run.py` 中以 `step_count()` 规避。
