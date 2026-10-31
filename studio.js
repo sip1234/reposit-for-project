@@ -23,14 +23,15 @@
       horizonDays: defaults.horizonDays,
       evalDays: defaults.evalDays,
       influent: scenario,
+      loadFactor: Number(el('load-factor').value),
       plantProfileId: defaults.plantProfileId
     };
   }
 
-  function isBaselineParams(params, weather = scenario) {
+  function isBaselineParams(params, weather = scenario, load = Number(el('load-factor').value)) {
     return Number(params.doSetpoint) === 2 && Number(params.recycleRatio) === 3 &&
       Number(params.carbonDose) === 0 && Number(params.evalDays) === defaults.evalDays &&
-      (params.influent || 'dry') === weather;
+      (params.influent || 'dry') === weather && Number(params.loadFactor ?? 1) === load;
   }
 
   function setStatus(text) { el('simulation-status').textContent = text; }
@@ -284,7 +285,7 @@
       const title = document.createElement('strong');
       title.textContent = `溶解氧 ${job.params.doSetpoint} mg/L · 内回流 ${job.params.recycleRatio}×Q`;
       const detail = document.createElement('p');
-      detail.textContent = `${job.params.influent === 'rain' ? '雨季' : '干季'} · 外加碳源 ${job.params.carbonDose} m³/d · 评价 ${job.params.evalDays} 天`;
+      detail.textContent = `${job.params.influent === 'rain' ? '雨季' : '干季'} · 负荷 ${job.params.loadFactor ?? 1}× · 外加碳源 ${job.params.carbonDose} m³/d · 评价 ${job.params.evalDays} 天`;
       entry.append(dot, meta, title, detail);
       timeline.append(entry);
     }
@@ -325,13 +326,13 @@
       if (job.status === 'ready' && result) {
         candidate = result;
         runCount += 1;
-        if (!baseline && isBaselineParams(job.params, job.params.influent || scenario)) baseline = result;
+        if (!baseline && isBaselineParams(job.params, job.params.influent || scenario, Number(job.params.loadFactor ?? 1))) baseline = result;
         clearTimeout(pollTimer);
         pollTimer = null;
         runningJobId = null;
         setButton('▶ 重新运行仿真 <span>约 40 秒</span>', false);
         setCancelVisible(false);
-        setStatus(`仿真完成 · ${result.metrics.profileId} · 模型 ${result.metrics.modelVersion} · ${result.metrics.stabilized ? '已稳态初始化' : '未稳态'} · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
+        setStatus(`仿真完成 · ${result.metrics.profileId} · 负荷 ${result.metrics.loadFactor ?? 1}× · 模型 ${result.metrics.modelVersion} · ${result.metrics.stabilized ? '已稳态初始化' : '未稳态'} · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
         renderMetrics();
         drawChart();
         loadHistory();
@@ -385,7 +386,7 @@
     try {
       const data = await requestJson(endpoint);
       renderHistory(data.jobs || []);
-      const base = (data.jobs || []).find(job => job.status === 'ready' && isBaselineParams(job.params, scenario));
+      const base = (data.jobs || []).find(job => job.status === 'ready' && isBaselineParams(job.params, scenario, Number(el('load-factor').value)));
       if (base) {
         const detail = await requestJson(`${endpoint}/${base.id}`);
         if (detail.result) { baseline = detail.result; drawChart(); }
@@ -414,6 +415,13 @@
     candidate = null;
     clearResult();
     setStatus(`已切换到 BSM1 ${scenario === 'dry' ? '干季' : '雨季'}入流，运行仿真刷新结果。`);
+    initialize();
+  });
+  el('load-factor').addEventListener('change', () => {
+    baseline = null;
+    candidate = null;
+    clearResult();
+    setStatus(`已切换到负荷 ${el('load-factor').value}×，运行仿真刷新结果。`);
     initialize();
   });
   el('run-simulation').addEventListener('click', runSimulation);

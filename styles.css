@@ -113,3 +113,5 @@
 .studio-export button:disabled { opacity:.45;cursor:not-allowed; }
 @media(max-width:1250px){.studio-metric-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.studio-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.studio-export{flex-wrap:wrap}}
+
+.scenario-select select { width:100%;text-align:left;background:#223841;border:1px solid #39545c;border-radius:7px;color:#d6e5e4;padding:11px 10px;font-size:10px; }

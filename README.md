@@ -74,11 +74,13 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 
 仿真场景可在“干季 / 雨季”之间切换。上游 `raininfluent.csv` 把 Q 的千位写成了点（如 `21.477` 表示 21477，`30.044.50` 表示 30044.50），仿真器运行时只修 Q 列并缓存结果，不修改安装包原件；结果中 `influentRepaired=true`。
 
+入流负荷可选 **0.7× / 1.0× / 1.3×**，通过缩放入流有机物、氮和 TSS 浓度实现（`loadFactor`）；这是建模假设，不是真实厂数据。高低负荷结果会记录 `loadFactor` 与 `influentScaled`。1.3× 高负荷下 KLa5 会达到 240 d⁻¹ 上限，DO 无法维持 2.0 mg/L（实测均值约 1.77），说明执行器约束开始生效。
+
 指标包括 AE/PE/ME、OCI、EQI/IQI、出水 SNH/SNO/Ntot/TSS/COD/BOD5 均值、SNH/Ntot/TSS 的 95% 分位、五项出水限值的超限天数/占比/次数，以及单位水量能耗。OCI 的 SP 由 `Qw×TSS_underflow + Qe×TSS_effluent` 估算，未计污泥库存变化，因此 OCI 为估算值。
 
 PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在评价窗口内可将溶解氧标准差控制在 0.08 mg/L 以内。
 
-仿真固定使用干季入流数据。默认先用开环 KLa5=84 稳定到稳态（约 20 秒），再运行 13.9 天动态并评价最后 7 天；单次总计约 30–45 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256`、`params_hash` 与 `stabilized`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务；请求可用 `stabilize` 覆盖默认稳态初始化。
+仿真按所选干/雨季与负荷运行。默认先用开环 KLa5=84 稳定到稳态（约 20 秒），再运行 13.9 天动态并评价最后 7 天；单次总计约 30–45 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256`、`params_hash`、`stabilized` 与 `loadFactor`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务；请求可用 `stabilize` 覆盖默认稳态初始化。
 
 ### 已知局限
 
@@ -86,6 +88,7 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 - **OCI 的 SP 是估算值**：用 `Qw×TSS_underflow + Qe×TSS_effluent`，未计污泥库存变化；需要严格 OCI 时应补全 SP 计算。
 - **雨季入流有上游格式问题**：`raininfluent.csv` 的 Q 使用点作千位分隔符，运行时修复 1,344 个 Q 字段；修复结果缓存，不改安装包。
 - 全指标以独立卡片展示（EQI、OCI、Ntot、TSS、超标比例、单位能耗、处理水量），并支持“导出 CSV / 导出 JSON”；CSV 含指标摘要与逐时曲线，JSON 为完整结果对象。
+- 高低负荷目前只缩放浓度，不改变设备能力/控制参数；故障注入（传感器偏置、执行器卡死等）尚未实现。
 - 默认稳态初始化使用开环 KLa5=84；若候选 DO 设定值偏离 2.0，前段仍有控制器过渡，评价窗口内已按整体呈现。
 - **BSM1 是基准模型，代表一类工艺的标准算例，不是本厂真实工况。** 结果不能直接用于生产判断。
 - 上游库存在 `simtime` 与 `timesteps` 长度不一致的问题，`simulator/run.py` 中以 `step_count()` 规避。
@@ -107,12 +110,18 @@ npm install
 npm run check
 npm run test:simulation
 docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" simulator python /scripts/check-eqi.py
+New-Item -ItemType Directory -Force artifacts/simulation | Out-Null
+docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" -v "${PWD}/artifacts/simulation:/app/artifacts" simulator python /scripts/morris-sensitivity.py --trajectories 4
 node scripts/smoke-test.js
 node scripts/check-knowledge-bases.js
 node scripts/check-models.js
 ```
 
 `check-eqi.py` 是 BSM1 开环官方基准的 golden test：先稳定到稳态、再跑 13.9 天动态，断言 AE/PE/ME 对齐官方、IQI 偏差 <0.2%、EQI 偏差 <1%。当前实测 EQI 6732.8（+0.49%）。
+
+`morris-sensitivity.py` 对 DO 设定值、内回流倍数、外加碳源做 Morris 初等效应分析：默认 4 条轨迹 × 4 点 = 16 次仿真，约 7 分钟；结果写入 `artifacts/simulation/morris.json`，包含 μ、μ*、σ 和逐样本指标。可用 `--load 0.7/1.0/1.3` 对高低负荷分别分析。
+
+当前 4 轨迹结果（seed 42、dry、load 1.0）：EQI 的 μ* 排序为 **碳源 455.4 > 内回流 165.2 > DO 63.1**；OCI 为 **碳源 4008.8 > DO 234.5 > 内回流 153.8**。内回流对 EQI 的 σ（196）大于 |μ|（22），说明存在明显非线性/交互，不能只看平均效应。4 条轨迹只适合初筛，正式结论应增加轨迹数并复跑。
 
 机理模型仿真的接口可用于自检：
 

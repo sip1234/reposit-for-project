@@ -46,7 +46,13 @@
     "evalDays": 7,
     "stepMinutes": 1,
     "influent": "dry",
+    "loadFactor": 1.0,
     "stabilize": true,
     "stabilizeAtol": 0.001
+  },
+  "loadScenarios": {
+    "low": 0.7,
+    "normal": 1.0,
+    "high": 1.3
   }
 }

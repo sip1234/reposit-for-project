@@ -59,6 +59,8 @@ INFLUENT_FILES = {"dry": "dryinfluent.csv", "rain": "raininfluent.csv"}
 MAX_HORIZON_DAYS = float(PROFILE["evaluation"]["horizonDays"])  # 入流文件末时刻为 13.9896 天
 
 SERIES_INTERVAL_MINUTES = 60  # 时间序列按小时抽样
+# 入流 CSV 列：0=时间，1..21=组分；做负荷缩放时只放大/缩小有机物、氮和 TSS。
+LOAD_SCALE_COLUMNS = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14]
 
 DDL = """
 CREATE TABLE IF NOT EXISTS sim_jobs (
@@ -105,6 +107,7 @@ NOTES = [
     f"第 5 格溶解氧由自实现 PI 控制器调节 KLa5，KLa 单位 d-1，限幅 {KLA5_MIN:g}-{KLA5_MAX:g}（BSM1 规范上限）",
     "EQI 已在稳态初始化后验证：开环对 6700 约 +0.49%、默认闭环对 6123 约 -0.28%",
     "OCI 的 SP 由 Qw×TSS_underflow + Qe×TSS_effluent 估算，未计污泥库存变化；EC 按 400 kg COD/m3 换算",
+    "高低负荷通过缩放入流有机物/氮/TSS 浓度实现（0.7/1.0/1.3），是建模假设而非真实厂数据",
     "外加碳源投加至第 1 格（缺氧区）",
 ]
 
@@ -235,6 +238,9 @@ def validate(params):
     stabilize = params.get("stabilize", PROFILE["evaluation"].get("stabilize", False))
     if not isinstance(stabilize, bool):
         raise ValueError("stabilize 必须为布尔值")
+    load_factor = float(params.get("loadFactor", PROFILE["evaluation"].get("loadFactor", 1.0)))
+    if not 0.5 <= load_factor <= 2.0:
+        raise ValueError("负荷系数须在 0.5 到 2.0 之间")
     values = {
         "profileId": profile_id,
         "horizonDays": horizon,
@@ -245,6 +251,7 @@ def validate(params):
         "weather": str(params.get("influent", PROFILE["evaluation"]["influent"])),
         "seed": int(params.get("seed", 0)),
         "stabilize": stabilize,
+        "loadFactor": load_factor,
     }
     if values["weather"] not in INFLUENT_FILES:
         raise ValueError(f"不支持的天气文件：{values['weather']}")
@@ -287,7 +294,18 @@ def quality_terms(eff):
 def simulate(params, on_progress=None, should_cancel=None):
     """执行一次 BSM1 仿真，返回 (metrics, series)。"""
     cfg = validate(params)
-    data_in, influent_repaired = influent_path(cfg["weather"])
+    data_path, influent_repaired = influent_path(cfg["weather"])
+    if cfg["loadFactor"] != 1.0:
+        influent_data = np.genfromtxt(data_path, delimiter=",")
+        influent_data[:, LOAD_SCALE_COLUMNS] *= cfg["loadFactor"]
+        data_in = influent_data
+        influent_scaled = True
+        influent_digest = hashlib.sha256(
+            np.ascontiguousarray(influent_data, dtype=float).tobytes()).hexdigest()
+    else:
+        data_in = data_path
+        influent_scaled = False
+        influent_digest = sha256_file(data_path)
     model = BSM1OL(data_in=data_in, timestep=1 / 1440, endtime=cfg["horizonDays"],
                    evaltime=int(round(cfg["evalDays"])))
     model.qintr = cfg["recycleRatio"] * QI_STAB
@@ -352,9 +370,11 @@ def simulate(params, on_progress=None, should_cancel=None):
         "modelVersion": MODEL_VERSION,
         "codeVersion": CODE_VERSION,
         "paramsHash": params_hash(params),
-        "influentSha256": sha256_file(data_in),
-        "influentFile": os.path.basename(data_in),
+        "influentSha256": influent_digest,
+        "influentFile": os.path.basename(data_path),
         "influentRepaired": influent_repaired,
+        "influentScaled": influent_scaled,
+        "loadFactor": cfg["loadFactor"],
         "seed": cfg["seed"],
         "iqi": round(iqi, 2),
         "eqi": round(eqi, 2),

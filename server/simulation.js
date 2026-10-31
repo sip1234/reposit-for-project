@@ -74,8 +74,10 @@ function validParams(body) {
   const influent = body?.influent === undefined ? profile.evaluation.influent : String(body.influent);
   const requestedProfile = body?.plantProfileId === undefined ? profile.profileId : String(body.plantProfileId);
   const stabilize = body?.stabilize === undefined ? Boolean(profile.evaluation.stabilize) : body.stabilize;
+  const loadFactor = numberIn(body?.loadFactor, 0.5, 2.0, profile.evaluation.loadFactor ?? 1);
   if (requestedProfile !== profile.profileId) return { error: `当前仅支持 plantProfileId=${profile.profileId}。` };
   if (typeof stabilize !== 'boolean') return { error: 'stabilize 必须为布尔值。' };
+  if (loadFactor === null) return { error: '负荷系数须在 0.5 到 2.0 之间。' };
   if (horizonDays === null) return { error: `仿真时长须在 1 到 ${profile.evaluation.horizonDays} 天之间。` };
   // 底层库要求评价窗口为整天
   const evalDays = rawEval === null ? null : Math.round(rawEval);
@@ -87,7 +89,7 @@ function validParams(body) {
   return {
     params: {
       horizonDays, evalDays, doSetpoint, recycleRatio, carbonDose, influent,
-      profileId: profile.profileId, stabilize
+      profileId: profile.profileId, stabilize, loadFactor
     }
   };
 }
