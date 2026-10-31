@@ -82,6 +82,19 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 
 仿真按所选干/雨季与负荷运行。默认先用开环 KLa5=84 稳定到稳态（约 20 秒），再运行 13.9 天动态并评价最后 7 天；单次总计约 30–45 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256`、`params_hash`、`stabilized` 与 `loadFactor`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务；请求可用 `stabilize` 覆盖默认稳态初始化。
 
+### 参数优化（GP-EI + Pareto）
+
+Studio 页面新增“参数优化”区：选择 4/6/8/12/24 次评估，任务写入 `opt_jobs`，由独立 `optimizer` 服务执行 GP-EI 选点，页面每 3 秒轮询进度并展示 Pareto 表。目标为最小化 OCI，约束为 SNH≤4、Ntot≤18、TSS≤30、COD≤100、BOD5≤10、DO5≥1.0。
+
+```text
+POST /api/optimization        {evaluations, initial, weather, loadFactor, stabilize, seed}
+GET  /api/optimization        最近任务
+GET  /api/optimization/<id>   任务状态 + Pareto 结果
+POST /api/optimization/<id>/cancel
+```
+
+4 次评估的 API 实跑（约 200 秒）：4 个可行、Pareto 3 个；最低 OCI 仍是基准 18403，最低 EQI 5621（碳源 1.29、OCI 21901）。4/6 次只适合冒烟，正式跑建议 24 次。
+
 ### 已知局限
 
 - **EQI 已完成基准验证**：开环 + 稳态初始化 6732.8，对官方 6700 差 **+0.49%**；默认闭环 PI + 稳态初始化 6106.1，对闭环参考 6123 差 **-0.28%**。此前 5970/6324 的偏低来自“从默认初值直接跑、未先稳定”，不是 EQI 公式错误。自定义控制器或参数下仍应按同一评价协议复核。
@@ -89,6 +102,7 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 - **雨季入流有上游格式问题**：`raininfluent.csv` 的 Q 使用点作千位分隔符，运行时修复 1,344 个 Q 字段；修复结果缓存，不改安装包。
 - 全指标以独立卡片展示（EQI、OCI、Ntot、TSS、超标比例、单位能耗、处理水量），并支持“导出 CSV / 导出 JSON”；CSV 含指标摘要与逐时曲线，JSON 为完整结果对象。
 - 高低负荷目前只缩放浓度，不改变设备能力/控制参数；故障注入（传感器偏置、执行器卡死等）尚未实现。
+- 优化 4/6 次评估只用于冒烟；GP-EI 需要 24 次左右才可能有像样的 Pareto。取消在稳态初始化阶段（约 20 秒）不会立即生效。
 - 默认稳态初始化使用开环 KLa5=84；若候选 DO 设定值偏离 2.0，前段仍有控制器过渡，评价窗口内已按整体呈现。
 - **BSM1 是基准模型，代表一类工艺的标准算例，不是本厂真实工况。** 结果不能直接用于生产判断。
 - 上游库存在 `simtime` 与 `timesteps` 长度不一致的问题，`simulator/run.py` 中以 `step_count()` 规避。

@@ -2,6 +2,7 @@
 // 服务不可用时保持页面可用，并给出明确提示。
 (() => {
   const endpoint = '/api/simulation';
+  const optimizationEndpoint = '/api/optimization';
   const defaults = { horizonDays: 13.9, evalDays: 7, influent: 'dry', plantProfileId: 'bsm1-default' };
   let scenario = defaults.influent;
   const parameterIds = ['aeration', 'reflux', 'dosage'];
@@ -9,6 +10,8 @@
 
   let pollTimer = null;
   let runningJobId = null;
+  let optimizationJobId = null;
+  let optimizationTimer = null;
   let baseline = null;
   let candidate = null;
   let runCount = 0;
@@ -269,6 +272,149 @@
       JSON.stringify(candidate, null, 2), 'application/json;charset=utf-8');
   }
 
+  function setOptimizationStatus(text) {
+    el('optimization-status').textContent = text;
+  }
+
+  function setOptimizationBusy(busy) {
+    el('run-optimization').disabled = busy;
+    el('optimization-evaluations').disabled = busy;
+    el('cancel-optimization').hidden = !busy;
+  }
+
+  function optimizationTable(result) {
+    const target = el('optimization-result');
+    target.replaceChildren();
+    const summary = document.createElement('p');
+    summary.textContent = `${result.evaluations} 次评估 · 可行 ${result.feasibleCount} 个 · Pareto ${result.pareto.length} 个 · ${result.elapsedSeconds} 秒`;
+    target.append(summary);
+    if (!result.pareto.length) {
+      const empty = document.createElement('p');
+      empty.textContent = '没有可行 Pareto 方案，请增加评估次数或放宽约束。';
+      target.append(empty);
+      return;
+    }
+    const table = document.createElement('table');
+    table.className = 'studio-optimization-table';
+    const head = document.createElement('tr');
+    for (const label of ['OCI', 'EQI', 'DO mg/L', '回流 ×Q', '碳源 m³/d', '可行']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      head.append(th);
+    }
+    const thead = document.createElement('thead');
+    thead.append(head);
+    table.append(thead);
+    const body = document.createElement('tbody');
+    const bestOci = result.bestOci?.x;
+    for (const point of result.pareto) {
+      const row = document.createElement('tr');
+      if (bestOci && point.x.doSetpoint === bestOci.doSetpoint
+        && point.x.recycleRatio === bestOci.recycleRatio
+        && point.x.carbonDose === bestOci.carbonDose) row.className = 'best';
+      for (const value of [
+        point.metrics.oci.toFixed(1),
+        point.metrics.eqi.toFixed(1),
+        point.x.doSetpoint.toFixed(2),
+        point.x.recycleRatio.toFixed(2),
+        point.x.carbonDose.toFixed(2),
+        point.feasible ? '是' : '否',
+      ]) {
+        const td = document.createElement('td');
+        td.textContent = value;
+        row.append(td);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    target.append(table);
+  }
+
+  async function pollOptimization() {
+    if (!optimizationJobId) return;
+    try {
+      const data = await requestJson(`${optimizationEndpoint}/${optimizationJobId}`);
+      const job = data.job;
+      if (job.status === 'ready') {
+        clearTimeout(optimizationTimer);
+        optimizationJobId = null;
+        setOptimizationBusy(false);
+        setOptimizationStatus(`优化完成 · ${job.params.evaluations} 次评估`);
+        if (data.result) optimizationTable(data.result);
+        return;
+      }
+      if (job.status === 'failed' || job.status === 'cancelled') {
+        clearTimeout(optimizationTimer);
+        optimizationJobId = null;
+        setOptimizationBusy(false);
+        setOptimizationStatus(job.status === 'cancelled' ? '优化已取消。' : `优化失败：${job.error || '未知错误'}`);
+        return;
+      }
+      setOptimizationStatus(`优化进行中… ${Math.round(Number(job.progress) * 100)}% · ${job.cancelRequested ? '正在取消…' : '后台队列'}`);
+      optimizationTimer = setTimeout(pollOptimization, 3000);
+    } catch (error) {
+      clearTimeout(optimizationTimer);
+      optimizationJobId = null;
+      setOptimizationBusy(false);
+      setOptimizationStatus(`优化状态读取失败：${error.message}`);
+    }
+  }
+
+  async function startOptimization() {
+    if (optimizationJobId) return;
+    clearTimeout(optimizationTimer);
+    const evaluations = Number(el('optimization-evaluations').value);
+    setOptimizationBusy(true);
+    setOptimizationStatus('正在提交优化任务…');
+    try {
+      const data = await requestJson(optimizationEndpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          evaluations,
+          initial: Math.min(4, evaluations),
+          weather: scenario,
+          loadFactor: Number(el('load-factor').value),
+          stabilize: true,
+        })
+      });
+      optimizationJobId = data.job.id;
+      setOptimizationStatus('任务已排队，等待优化开始…');
+      pollOptimization();
+    } catch (error) {
+      setOptimizationBusy(false);
+      setOptimizationStatus(`提交失败：${error.message}`);
+    }
+  }
+
+  async function cancelOptimization() {
+    if (!optimizationJobId) return;
+    try {
+      await requestJson(`${optimizationEndpoint}/${optimizationJobId}/cancel`, { method: 'POST' });
+      setOptimizationStatus('已请求取消，等待优化停止…');
+    } catch (error) {
+      setOptimizationStatus(`取消失败：${error.message}`);
+    }
+  }
+
+  async function loadLatestOptimization() {
+    try {
+      const data = await requestJson(optimizationEndpoint);
+      const latest = (data.jobs || [])[0];
+      if (!latest) return;
+      if (latest.status === 'ready') {
+        const detail = await requestJson(`${optimizationEndpoint}/${latest.id}`);
+        if (detail.result) optimizationTable(detail.result);
+        setOptimizationStatus(`最近任务已完成 · ${latest.params.evaluations} 次评估`);
+      } else if (latest.status === 'queued' || latest.status === 'running') {
+        optimizationJobId = latest.id;
+        setOptimizationBusy(true);
+        pollOptimization();
+      } else {
+        setOptimizationStatus(`最近任务：${latest.status === 'cancelled' ? '已取消' : '失败'}`);
+      }
+    } catch { /* 服务不可用时保持页面可用 */ }
+  }
+
   function renderHistory(jobs) {
     const timeline = el('history-timeline');
     const current = timeline.querySelector('.current');
@@ -394,6 +540,7 @@
     } catch (error) {
       setStatus(`仿真服务不可用：${error.message}。请确认 docker compose 的 simulator 服务已启动。`);
     }
+    loadLatestOptimization();
   }
 
   for (const id of parameterIds) {
@@ -426,6 +573,8 @@
   });
   el('run-simulation').addEventListener('click', runSimulation);
   el('cancel-simulation').addEventListener('click', cancelSimulation);
+  el('run-optimization').addEventListener('click', startOptimization);
+  el('cancel-optimization').addEventListener('click', cancelOptimization);
   el('export-csv').addEventListener('click', exportCsv);
   el('export-json').addEventListener('click', exportJson);
   window.addEventListener('studio:open', initialize);

@@ -101,6 +101,19 @@ services:
       db:
         condition: service_healthy
 
+  optimizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    restart: unless-stopped
+    command: ["python", "optimizer/run.py"]
+    environment:
+      DATABASE_URL: postgres://documents:${POSTGRES_PASSWORD}@db:5432/documents
+      CODE_VERSION: ${CODE_VERSION:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+
   tusd:
     image: ghcr.io/tus/tusd:v2.9.2
     restart: unless-stopped

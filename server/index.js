@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 const knowledge = require('./knowledge');
 const models = require('./models');
 const simulation = require('./simulation');
+const optimization = require('./optimization');
 const parsing = require('./parsing');
 const retrieval = require('./retrieval');
 
@@ -328,6 +329,7 @@ async function handler(req, res) {
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/retrieval/')) return await retrieval.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/simulation')) return await simulation.handle(pool, req, res, url, send, readBody);
+    if (url.pathname.startsWith('/api/optimization')) return await optimization.handle(pool, req, res, url, send, readBody);
     if (url.pathname === '/api/parsing/configs' || /^\/api\/documents\/[^/]+\/(parse|parsing|chunks|retrieval-test)(\/\d+)?$/.test(url.pathname)) {
       return await parsing.handle(pool, req, res, url, send, readBody);
     }
@@ -363,6 +365,7 @@ async function start() {
   await parsing.setup(pool);
   await retrieval.setup(pool);
   await simulation.setup(pool);
+  await optimization.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

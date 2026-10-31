@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/knowledge.js && node --check server/parsing.js && node --check server/models.js && node --check server/simulation.js && node --check app.js && node --check studio.js && node --check documents.js && node --check assistant.js && node --check parsing.js && node --check server/retrieval.js && node --check retrieval-ui.js",
+    "check": "node --check server/index.js && node --check server/knowledge.js && node --check server/parsing.js && node --check server/models.js && node --check server/simulation.js && node --check server/optimization.js && node --check app.js && node --check studio.js && node --check documents.js && node --check assistant.js && node --check parsing.js && node --check server/retrieval.js && node --check retrieval-ui.js",
     "test:parsing": "node scripts/test-parsing.js",
     "test:chunks": "node scripts/test-chunk-maintenance.js",
     "test:retrieval": "node scripts/test-retrieval.js",

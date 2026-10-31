@@ -115,3 +115,18 @@
 @media(max-width:800px){.studio-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.studio-export{flex-wrap:wrap}}
 
 .scenario-select select { width:100%;text-align:left;background:#223841;border:1px solid #39545c;border-radius:7px;color:#d6e5e4;padding:11px 10px;font-size:10px; }
+
+/* BSM1 optimization */
+.studio-optimization { background:#1d3039;border:1px solid #335059;border-radius:8px;margin-top:15px;padding:14px 13px; }
+.studio-optimization-head { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+.studio-optimization-head strong { display:block;font-size:11px; }
+.studio-optimization-head span { display:block;color:#8da9ae;font-size:9px;margin-top:4px; }
+.studio-optimization-controls { display:flex;align-items:center;gap:7px;flex-wrap:wrap; }
+.studio-optimization-controls select { background:#223841;border:1px solid #39545c;border-radius:6px;color:#d6e5e4;padding:7px 8px;font-size:9px; }
+.studio-optimization-result { color:#8da9ae;font-size:9px;line-height:1.6;margin-top:10px; }
+.studio-optimization-table { width:100%;border-collapse:collapse;margin-top:8px;font-size:9px; }
+.studio-optimization-table th,.studio-optimization-table td { border-top:1px solid #30464d;padding:6px 5px;text-align:left;white-space:nowrap; }
+.studio-optimization-table th { color:#8da9ae;font-weight:700; }
+.studio-optimization-table td { color:#c5d9d7; }
+.studio-optimization-table tr.best td { color:#4ce2c2; }
+@media(max-width:600px){.studio-optimization-controls{width:100%}.studio-optimization-table{display:block;overflow-x:auto}}

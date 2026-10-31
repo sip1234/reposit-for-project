@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const profile = require('../shared/plant_profile.json');
 const simulation = require('../server/simulation');
+const optimization = require('../server/optimization');
 
 function inside(value, range) {
   return value >= range.min && value <= range.max;
@@ -60,6 +61,15 @@ assert.equal(edge.error, undefined);
 assert.equal(edge.params.doSetpoint, 1.5);
 assert.equal(edge.params.recycleRatio, 2);
 assert.equal(edge.params.carbonDose, 0);
+
+const opt = optimization.validParams({ evaluations: 4, initial: 4 });
+assert.equal(opt.error, undefined);
+assert.equal(opt.params.evaluations, 4);
+assert.equal(opt.params.initial, 4);
+assert.equal(opt.params.no_stabilize, false);
+assert.ok(optimization.validParams({ evaluations: 3 }).error, 'optimization below 4 evaluations must be rejected');
+assert.ok(optimization.validParams({ evaluations: 4, initial: 5 }).error, 'initial above evaluations must be rejected');
+assert.ok(optimization.validParams({ loadFactor: 2.1 }).error, 'optimization load above 2.0 must be rejected');
 
 console.log(JSON.stringify({
   result: 'PASS',
