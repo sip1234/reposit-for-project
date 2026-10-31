@@ -112,6 +112,8 @@ npm run test:simulation
 docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" simulator python /scripts/check-eqi.py
 New-Item -ItemType Directory -Force artifacts/simulation | Out-Null
 docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" -v "${PWD}/artifacts/simulation:/app/artifacts" simulator python /scripts/morris-sensitivity.py --trajectories 4
+New-Item -ItemType Directory -Force artifacts/optimization | Out-Null
+docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" -v "${PWD}/artifacts/optimization:/app/artifacts" simulator python /scripts/optimize-simulation.py --evaluations 24
 node scripts/smoke-test.js
 node scripts/check-knowledge-bases.js
 node scripts/check-models.js
@@ -122,6 +124,18 @@ node scripts/check-models.js
 `morris-sensitivity.py` 对 DO 设定值、内回流倍数、外加碳源做 Morris 初等效应分析：默认 4 条轨迹 × 4 点 = 16 次仿真，约 7 分钟；结果写入 `artifacts/simulation/morris.json`，包含 μ、μ*、σ 和逐样本指标。可用 `--load 0.7/1.0/1.3` 对高低负荷分别分析。
 
 当前 4 轨迹结果（seed 42、dry、load 1.0）：EQI 的 μ* 排序为 **碳源 455.4 > 内回流 165.2 > DO 63.1**；OCI 为 **碳源 4008.8 > DO 234.5 > 内回流 153.8**。内回流对 EQI 的 σ（196）大于 |μ|（22），说明存在明显非线性/交互，不能只看平均效应。4 条轨迹只适合初筛，正式结论应增加轨迹数并复跑。
+
+`optimize-simulation.py` 做约束优化：GP 代理模型 + Expected Improvement 选点，目标为最小化 OCI，约束为出水 SNH/Ntot/TSS/COD/BOD5 与 DO5 最低值；最后从所有评估点中筛选 OCI-EQI 的 Pareto 前沿。默认 24 次评估、约 15 分钟，结果写入 `artifacts/optimization/optimization.json`。默认 6 个初始点 + 18 个贝叶斯点；`--no-stabilize` 可加速但 EQI 不可比。
+
+6 次冒烟（`--evaluations 6 --initial 4`，257.9 秒）：6 个可行、Pareto 3 个：
+
+| 方案 | OCI | EQI | DO | 回流 | 碳源 |
+|---|---:|---:|---:|---:|---:|
+| 基准 | 18,403 | 6,106 | 2.00 | 3.00 | 0.00 |
+| 折中 | 18,656 | 6,081 | 2.05 | 3.11 | 0.09 |
+| 低 EQI | 21,901 | 5,621 | 2.27 | 2.88 | 1.29 |
+
+这 6 次只用于验证脚本与 Pareto 逻辑，不代表 24 次收敛结果；最低 OCI 仍是基准，说明在约束内继续降 OCI 需要更多评估或调整目标权重。
 
 机理模型仿真的接口可用于自检：
 
