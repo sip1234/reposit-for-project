@@ -100,3 +100,16 @@
 .parsing-settings,.parsing-content,.parsing-layout,.parsing-metadata,.parsing-chunk pre { scrollbar-color:#3c5472 #101b2b;scrollbar-width:thin; }
 #document-preview { z-index:90; }
 @media(max-width:850px){.parsing-backdrop{padding:8px}.parsing-dialog{max-height:calc(100dvh - 16px)}.parsing-layout{display:block;overflow:auto}.parsing-settings{border-right:0;border-bottom:1px solid var(--parsing-border);overflow:visible}.parsing-header{padding:14px}.parsing-header h2{font-size:17px}.parsing-header p{margin-bottom:0}.parsing-content{padding:14px;overflow:visible}}
+
+/* BSM1 full metrics */
+.studio-metric-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:15px; }
+.studio-metric-card { background:#1d3039;border:1px solid #335059;border-radius:8px;padding:11px 12px;min-height:86px; }
+.studio-metric-card small { display:block;color:#8da9ae;font-size:9px; }
+.studio-metric-card strong { display:block;font:800 20px DM Sans,Manrope,sans-serif;margin:6px 0 3px;white-space:nowrap; }
+.studio-metric-card strong span { font-size:9px;color:#90aaa9;font-weight:500; }
+.studio-metric-card p { margin:0;color:#78949a;font-size:8px;line-height:1.45; }
+.studio-metric-card.warn strong { color:#e8b06a; }
+.studio-export { display:flex;align-items:center;gap:8px;margin-top:10px;color:#78949a;font-size:9px; }
+.studio-export button:disabled { opacity:.45;cursor:not-allowed; }
+@media(max-width:1250px){.studio-metric-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){.studio-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.studio-export{flex-wrap:wrap}}

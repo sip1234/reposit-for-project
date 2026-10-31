@@ -85,6 +85,8 @@
     el('outcome-compliance').textContent = '—';
     el('compliance-change').className = 'outcome-change neutral';
     el('compliance-change').innerHTML = '限值 4 g N/m³ <span>待复核</span>';
+    el('studio-metric-grid').replaceChildren();
+    setExportEnabled(false);
     setText('model-insight', '已切换场景，运行仿真刷新结果。');
   }
 
@@ -159,6 +161,111 @@
       `以上为 IWA BSM1 基准模型的模拟结果，不代表本厂实际工况。`);
 
     setText('current-plan-label', `候选方案 ${String.fromCharCode(65 + (runCount % 26))} · 第 ${runCount} 次仿真`);
+    renderMetricCards(metrics);
+    setExportEnabled(true);
+  }
+
+  function setExportEnabled(enabled) {
+    el('export-csv').disabled = !enabled;
+    el('export-json').disabled = !enabled;
+    el('export-status').textContent = enabled ? '导出当前结果（指标 + 曲线）' : '运行仿真后可导出';
+  }
+
+  function metricValue(value, digits = 2) {
+    return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '—';
+  }
+
+  function renderMetricCards(metrics) {
+    const grid = el('studio-metric-grid');
+    grid.replaceChildren();
+    const snh = metrics.violations?.snh || {};
+    const ntot = metrics.violations?.ntot || {};
+    const cards = [
+      ['EQI', metricValue(metrics.eqi, 0), '', '闭环参考 6123 / 开环 6700', false],
+      ['OCI', metricValue(metrics.oci, 0), '', 'SP 估算，不含库存变化', false],
+      ['出水 Ntot', metricValue(metrics.effluentNtotMean), 'g N/m³', '限值 18', Number(metrics.effluentNtotMean) > 18],
+      ['出水 TSS', metricValue(metrics.effluentTssMean), 'g/m³', '限值 30', Number(metrics.effluentTssMean) > 30],
+      ['SNH 超标', metricValue(snh.percent, 2), '%', `${metricValue(snh.days, 2)} d · ${snh.count ?? 0} 次`, Number(snh.percent) > 0],
+      ['Ntot 超标', metricValue(ntot.percent, 2), '%', `${metricValue(ntot.days, 2)} d · ${ntot.count ?? 0} 次`, Number(ntot.percent) > 0],
+      ['单位水量能耗', metricValue(metrics.energyPerM3, 3), 'kWh/m³', `处理 ${metricValue(metrics.treatedVolume, 0)} m³`, false],
+      ['处理水量', metricValue(metrics.treatedVolume, 0), 'm³', `${metricValue(metrics.evalDays, 0)} 天评价窗口`, false],
+    ];
+    for (const [label, value, unit, note, warn] of cards) {
+      const card = document.createElement('article');
+      card.className = `studio-metric-card${warn ? ' warn' : ''}`;
+      const small = document.createElement('small');
+      small.textContent = label;
+      const strong = document.createElement('strong');
+      strong.textContent = value;
+      if (unit) {
+        const span = document.createElement('span');
+        span.textContent = ` ${unit}`;
+        strong.append(span);
+      }
+      const p = document.createElement('p');
+      p.textContent = note;
+      card.append(small, strong, p);
+      grid.append(card);
+    }
+  }
+
+  function downloadFile(filename, content, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function csvCell(value) {
+    const text = value === undefined || value === null ? '' : String(value);
+    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  }
+
+  function exportCsv() {
+    if (!candidate) return;
+    const metrics = candidate.metrics;
+    const rows = [['指标', '值', '单位']];
+    const defs = [
+      ['profileId', 'profileId', ''], ['weather', '天气', ''], ['stabilized', '稳态初始化', ''],
+      ['iqi', 'IQI', ''], ['eqi', 'EQI', ''], ['oci', 'OCI', ''],
+      ['aerationEnergy', '曝气能耗', 'kWh/d'], ['pumpingEnergy', '泵送能耗', 'kWh/d'],
+      ['mixingEnergy', '搅拌能耗', 'kWh/d'], ['energyTotal', '总能耗', 'kWh/d'],
+      ['energyPerM3', '单位水量能耗', 'kWh/m³'], ['treatedVolume', '处理水量', 'm³'],
+      ['effluentSnhMean', '出水 NH4 均值', 'g N/m³'], ['effluentNtotMean', '出水 Ntot 均值', 'g N/m³'],
+      ['effluentTssMean', '出水 TSS 均值', 'g/m³'], ['effluentCodMean', '出水 COD 均值', 'g/m³'],
+      ['effluentBod5Mean', '出水 BOD5 均值', 'g/m³'], ['snhP95', 'SNH 95% 分位', 'g N/m³'],
+      ['ntotP95', 'Ntot 95% 分位', 'g N/m³'], ['tssP95', 'TSS 95% 分位', 'g/m³'],
+      ['doTank5Mean', 'DO5 均值', 'mg/L'], ['doTank5Min', 'DO5 最小', 'mg/L'], ['doTank5Max', 'DO5 最大', 'mg/L'],
+      ['sludgeProduction', 'SP（估算）', 'kg/d'], ['modelVersion', '模型版本', ''], ['influentFile', '入流文件', ''],
+    ];
+    for (const [key, label, unit] of defs) rows.push([label, metrics[key] ?? '', unit]);
+    for (const key of ['snh', 'ntot', 'tss', 'cod', 'bod5']) {
+      const item = metrics.violations?.[key] || {};
+      rows.push([`${key} 超标天数`, item.days ?? '', 'd']);
+      rows.push([`${key} 超标占比`, item.percent ?? '', '%']);
+      rows.push([`${key} 超标次数`, item.count ?? '', '次']);
+    }
+    rows.push([]);
+    const series = candidate.series || {};
+    rows.push(['时间 (d)', 'DO5 (mg/L)', ...(series.effluentColumns || [])]);
+    for (let i = 0; i < (series.time || []).length; i++) {
+      rows.push([series.time[i], series.soTank5?.[i] ?? '', ...(series.effluent?.[i] || [])]);
+    }
+    const csv = '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\n');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadFile(`bsm1-${metrics.weather || 'sim'}-${stamp}.csv`, csv, 'text/csv;charset=utf-8');
+  }
+
+  function exportJson() {
+    if (!candidate) return;
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadFile(`bsm1-${candidate.metrics?.weather || 'sim'}-${stamp}.json`,
+      JSON.stringify(candidate, null, 2), 'application/json;charset=utf-8');
   }
 
   function renderHistory(jobs) {
@@ -241,6 +348,7 @@
     if (runningJobId) return;
     clearTimeout(pollTimer);
     setButton('◌ 正在运行模型 <span>请稍候</span>', true);
+    setExportEnabled(false);
     setStatus('正在提交仿真任务…');
     try {
       const data = await requestJson(endpoint, {
@@ -310,6 +418,8 @@
   });
   el('run-simulation').addEventListener('click', runSimulation);
   el('cancel-simulation').addEventListener('click', cancelSimulation);
+  el('export-csv').addEventListener('click', exportCsv);
+  el('export-json').addEventListener('click', exportJson);
   window.addEventListener('studio:open', initialize);
   if (location.hash === '#studio') initialize();
 })();
