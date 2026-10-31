@@ -45,6 +45,8 @@
     "horizonDays": 13.9,
     "evalDays": 7,
     "stepMinutes": 1,
-    "influent": "dry"
+    "influent": "dry",
+    "stabilize": true,
+    "stabilizeAtol": 0.001
   }
 }

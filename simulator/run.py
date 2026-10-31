@@ -203,6 +203,9 @@ def validate(params):
     do_range = PROFILE["hardRanges"]["doSetpoint"]
     recycle_range = PROFILE["hardRanges"]["recycleRatio"]
     carbon_range = PROFILE["hardRanges"]["carbonDose"]
+    stabilize = params.get("stabilize", PROFILE["evaluation"].get("stabilize", False))
+    if not isinstance(stabilize, bool):
+        raise ValueError("stabilize 必须为布尔值")
     values = {
         "profileId": profile_id,
         "horizonDays": horizon,
@@ -212,6 +215,7 @@ def validate(params):
         "carbonDose": float(params.get("carbonDose", carbon_range["default"])),
         "weather": str(params.get("influent", PROFILE["evaluation"]["influent"])),
         "seed": int(params.get("seed", 0)),
+        "stabilize": stabilize,
     }
     if values["weather"] not in INFLUENT_FILES:
         raise ValueError(f"不支持的天气文件：{values['weather']}")
@@ -237,6 +241,8 @@ def simulate(params, on_progress=None, should_cancel=None):
                    evaltime=int(round(cfg["evalDays"])))
     model.qintr = cfg["recycleRatio"] * QI_STAB
     model.reactor1.carb = cfg["carbonDose"]
+    if cfg["stabilize"]:
+        model.stabilize(atol=float(PROFILE["evaluation"].get("stabilizeAtol", 1e-3)))
 
     dt_days = 1 / 1440
     klass = np.array([0.0, 0.0, KLA_FIXED, KLA_FIXED, KLA5_OFFSET], dtype=float)
@@ -307,6 +313,7 @@ def simulate(params, on_progress=None, should_cancel=None):
         "weather": cfg["weather"],
         "stepMinutes": 1,
         "kla5Max": KLA5_MAX,
+        "stabilized": cfg["stabilize"],
         "steps": total_steps,
     }
     series = {

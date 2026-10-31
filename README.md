@@ -74,13 +74,13 @@ PDF 在页面直接显示；TXT 和 CSV 显示文本内容，超过 5 MiB 时先
 
 PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在评价窗口内可将溶解氧标准差控制在 0.08 mg/L 以内。
 
-仿真固定使用干季入流数据，运行 13.9 天（入流文件末时刻）并评价最后 7 天，与规范的评估方式一致。单次约需 20–30 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256` 与 `params_hash`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务。
+仿真固定使用干季入流数据。默认先用开环 KLa5=84 稳定到稳态（约 20 秒），再运行 13.9 天动态并评价最后 7 天；单次总计约 30–45 秒，因此走后台任务队列：页面点击后提交任务、轮询进度并展示结果。任务表为 `sim_jobs` 与 `sim_results`。每次任务记录 `profile_id`、`model_version`、`code_version`、`influent_sha256`、`params_hash` 与 `stabilized`，支持 `POST /api/simulation/<id>/cancel` 取消排队或运行中的任务；请求可用 `stabilize` 覆盖默认稳态初始化。
 
 ### 已知局限
 
-- **出水质量指数（EQI）的对照口径尚未统一**：当前闭环 DO 控制、默认参数下实测约 5970；相对开环参考 6700 低约 10.9%，相对闭环参考 6123 低约 2.5%。当前控制器与 BSM1CL 不同，不能直接判定为同一偏差；界面暂不展示 EQI，做参数优化前必须先固定评价协议并核对分项。
-- 曲线中除曝气能耗、泵送与搅拌能耗、出水氨氮均值外的指标尚未接入。
-- 仿真从默认稳态初值开始。改动参数后严格来说需要重新稳定，因此短时间窗内的前段结果含有瞬态，界面按"评价窗口"整体呈现。
+- **EQI 已完成基准验证**：开环 + 稳态初始化 6732.8，对官方 6700 差 **+0.49%**；默认闭环 PI + 稳态初始化 6106.1，对闭环参考 6123 差 **-0.28%**。此前 5970/6324 的偏低来自“从默认初值直接跑、未先稳定”，不是 EQI 公式错误。自定义控制器或参数下仍应按同一评价协议复核。
+- 曲线中除曝气能耗、泵送与搅拌能耗、出水氨氮均值外的指标尚未接入；EQI 已显示在“模型解读”中。
+- 默认稳态初始化使用开环 KLa5=84；若候选 DO 设定值偏离 2.0，前段仍有控制器过渡，评价窗口内已按整体呈现。
 - **BSM1 是基准模型，代表一类工艺的标准算例，不是本厂真实工况。** 结果不能直接用于生产判断。
 - 上游库存在 `simtime` 与 `timesteps` 长度不一致的问题，`simulator/run.py` 中以 `step_count()` 规避。
 
@@ -100,10 +100,13 @@ PI 控制器参数取自 `bsm2-python` 中基于 BSM1 调校的值；实测在�
 npm install
 npm run check
 npm run test:simulation
+docker compose run --rm --no-deps -v "${PWD}/scripts:/scripts:ro" simulator python /scripts/check-eqi.py
 node scripts/smoke-test.js
 node scripts/check-knowledge-bases.js
 node scripts/check-models.js
 ```
+
+`check-eqi.py` 是 BSM1 开环官方基准的 golden test：先稳定到稳态、再跑 13.9 天动态，断言 AE/PE/ME 对齐官方、IQI 偏差 <0.2%、EQI 偏差 <1%。当前实测 EQI 6732.8（+0.49%）。
 
 机理模型仿真的接口可用于自检：
 

@@ -30,6 +30,8 @@ for (const key of ['snh', 'ntot', 'tss', 'cod', 'bod5']) {
 assert.ok(profile.evaluation.horizonDays > 0 && profile.evaluation.horizonDays <= 14);
 assert.ok(profile.evaluation.evalDays >= 1 && profile.evaluation.evalDays <= profile.evaluation.horizonDays);
 assert.equal(profile.evaluation.stepMinutes, 1);
+assert.equal(profile.evaluation.stabilize, true, 'stabilization must be on by default');
+assert.ok(profile.evaluation.stabilizeAtol > 0);
 assert.ok(['dry', 'rain'].includes(profile.evaluation.influent));
 
 const defaults = simulation.validParams({});
@@ -38,12 +40,14 @@ assert.equal(defaults.params.doSetpoint, profile.hardRanges.doSetpoint.default);
 assert.equal(defaults.params.recycleRatio, profile.hardRanges.recycleRatio.default);
 assert.equal(defaults.params.carbonDose, profile.hardRanges.carbonDose.default);
 assert.equal(defaults.params.profileId, profile.profileId);
+assert.equal(defaults.params.stabilize, true);
 
 assert.ok(simulation.validParams({ doSetpoint: 0.4 }).error, 'DO below hard min must be rejected');
 assert.ok(simulation.validParams({ doSetpoint: 4.1 }).error, 'DO above hard max must be rejected');
 assert.ok(simulation.validParams({ recycleRatio: -0.1 }).error, 'negative recycle must be rejected');
 assert.ok(simulation.validParams({ carbonDose: 5.1 }).error, 'carbon above hard max must be rejected');
 assert.ok(simulation.validParams({ plantProfileId: 'other-plant' }).error, 'unknown profile must be rejected');
+assert.ok(simulation.validParams({ stabilize: 'yes' }).error, 'non-boolean stabilize must be rejected');
 
 const edge = simulation.validParams({ doSetpoint: 1.5, recycleRatio: 2, carbonDose: 0 });
 assert.equal(edge.error, undefined);

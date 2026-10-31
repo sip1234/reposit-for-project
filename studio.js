@@ -136,7 +136,8 @@
       `BSM1 干季工况 · 评价最后 ${metrics.evalDays} 天：第 5 格溶解氧均值 ` +
       `${metrics.doTank5Mean} mg/L（设定 ${metrics.doSetpoint}，波动 ${metrics.doTank5Min}–${metrics.doTank5Max}）；` +
       `曝气能耗 ${Number(metrics.aerationEnergy).toFixed(1)} kWh/d；` +
-      `出水氨氮均值 ${snh.toFixed(2)} g N/m³。` +
+      `出水氨氮均值 ${snh.toFixed(2)} g N/m³；EQI ${Number(metrics.eqi).toFixed(0)}` +
+      `（${metrics.stabilized ? '已稳态初始化' : '未稳态'}；闭环参考 6123 / 开环参考 6700）。` +
       `以上为 IWA BSM1 基准模型的模拟结果，不代表本厂实际工况。`);
 
     setText('current-plan-label', `候选方案 ${String.fromCharCode(65 + (runCount % 26))} · 第 ${runCount} 次仿真`);
@@ -168,7 +169,7 @@
     clearTimeout(pollTimer);
     pollTimer = null;
     runningJobId = null;
-    setButton('▶ 运行仿真 <span>约 30 秒</span>', false);
+    setButton('▶ 运行仿真 <span>约 40 秒</span>', false);
     setCancelVisible(false);
     setStatus(`仿真服务不可用：${error.message}。请确认 docker compose 的 simulator 服务已启动。`);
   }
@@ -190,7 +191,7 @@
         clearTimeout(pollTimer);
         pollTimer = null;
         runningJobId = null;
-        setButton('▶ 运行仿真 <span>约 30 秒</span>', false);
+        setButton('▶ 运行仿真 <span>约 40 秒</span>', false);
         setCancelVisible(false);
         setStatus('仿真已取消。');
         loadHistory();
@@ -203,15 +204,15 @@
         clearTimeout(pollTimer);
         pollTimer = null;
         runningJobId = null;
-        setButton('▶ 重新运行仿真 <span>约 30 秒</span>', false);
+        setButton('▶ 重新运行仿真 <span>约 40 秒</span>', false);
         setCancelVisible(false);
-        setStatus(`仿真完成 · ${result.metrics.profileId} · 模型 ${result.metrics.modelVersion} · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
+        setStatus(`仿真完成 · ${result.metrics.profileId} · 模型 ${result.metrics.modelVersion} · ${result.metrics.stabilized ? '已稳态初始化' : '未稳态'} · 共 ${result.metrics.steps} 步 · 评价最后 ${result.metrics.evalDays} 天。`);
         renderMetrics();
         drawChart();
         loadHistory();
         return;
       }
-      setStatus(`模型正在计算… ${Math.round(Number(job.progress) * 100)}% · ${job.cancelRequested ? '正在取消…' : '约需 30 秒'}`);
+      setStatus(`模型正在计算… ${Math.round(Number(job.progress) * 100)}% · ${job.cancelRequested ? '正在取消…' : '约需 40 秒'}`);
       pollTimer = setTimeout(poll, POLL_MS);
     } catch (error) {
       fail(error);
