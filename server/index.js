@@ -11,6 +11,7 @@ const knowledge = require('./knowledge');
 const models = require('./models');
 const simulation = require('./simulation');
 const optimization = require('./optimization');
+const mechanismQa = require('./mechanism-qa');
 const parsing = require('./parsing');
 const retrieval = require('./retrieval');
 
@@ -311,6 +312,7 @@ const staticFiles = new Map([
   ['/studio.js', ['studio.js', 'application/javascript; charset=utf-8']],
   ['/documents.js', ['documents.js', 'application/javascript; charset=utf-8']],
   ['/assistant.js', ['assistant.js', 'application/javascript; charset=utf-8']],
+  ['/mechanism-qa.js', ['mechanism-qa.js', 'application/javascript; charset=utf-8']],
   ['/parsing.js', ['parsing.js', 'application/javascript; charset=utf-8']],
   ['/retrieval-ui.js', ['retrieval-ui.js', 'application/javascript; charset=utf-8']],
   ['/vendor/tus.min.js', ['node_modules/tus-js-client/dist/tus.min.js', 'application/javascript; charset=utf-8']]
@@ -325,6 +327,7 @@ async function handler(req, res) {
     }
     if (req.method === 'POST' && url.pathname === '/internal/tusd-hook') return await hook(req, res, url);
     if (url.pathname === '/api/knowledge/query') return await knowledge.handle(pool, req, res, send, readBody);
+    if (url.pathname.startsWith('/api/mechanism-qa')) return await mechanismQa.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/knowledge-bases')) return await knowledge.handleBases(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/models')) return await models.handle(pool, req, res, url, send, readBody);
     if (url.pathname.startsWith('/api/retrieval/')) return await retrieval.handle(pool, req, res, url, send, readBody);
@@ -366,6 +369,7 @@ async function start() {
   await retrieval.setup(pool);
   await simulation.setup(pool);
   await optimization.setup(pool);
+  await mechanismQa.setup(pool);
   const unfinished = await pool.query("SELECT id, status FROM documents WHERE status <> 'ready'");
   for (const row of unfinished.rows) {
     if (row.status !== 'uploading') { queueFinalize(row.id); continue; }

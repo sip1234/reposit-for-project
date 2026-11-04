@@ -110,12 +110,17 @@ async function createJob(pool, req, res, send, readBody) {
   catch { return send(res, 400, { error: '请求体不是合法 JSON。' }); }
   const parsed = validParams(body);
   if (parsed.error) return send(res, 400, { error: parsed.error });
+  const job = await enqueue(pool, parsed.params);
+  return send(res, 201, { job, profile });
+}
+
+async function enqueue(pool, params) {
   const id = crypto.randomUUID();
   const result = await pool.query(
     `INSERT INTO sim_jobs (id, status, params, profile_id, model_version, code_version)
      VALUES ($1, 'queued', $2, $3, $4, $5) RETURNING ${jobColumns}`,
-    [id, JSON.stringify(parsed.params), profile.profileId, profile.modelImplementation, codeVersion]);
-  return send(res, 201, { job: publicJob(result.rows[0]), profile });
+    [id, JSON.stringify(params), profile.profileId, profile.modelImplementation, codeVersion]);
+  return publicJob(result.rows[0]);
 }
 
 async function listJobs(pool, res, send) {
@@ -175,4 +180,4 @@ async function handle(pool, req, res, url, send, readBody) {
   return send(res, 404, { error: '未找到资源' });
 }
 
-module.exports = { setup, handle, profile, validParams, codeVersion };
+module.exports = { setup, handle, enqueue, profile, validParams, codeVersion };

@@ -1,6 +1,7 @@
 (() => {
   const tabButtons = [...document.querySelectorAll('[data-assistant-tab]')];
   const chatPanel = document.getElementById('assistant-chat');
+  const mechanismPanel = document.getElementById('assistant-mechanism');
   const basesPanel = document.getElementById('assistant-bases');
   const modelsPanel = document.getElementById('assistant-models');
   const baseOptions = document.getElementById('assistant-base-options');
@@ -44,6 +45,7 @@
   function setTab(name) {
     const chat = name === 'chat';
     chatPanel.hidden = !chat;
+    mechanismPanel.hidden = name !== 'mechanism';
     basesPanel.hidden = name !== 'bases';
     modelsPanel.hidden = name !== 'models';
     for (const button of tabButtons) {
@@ -54,6 +56,7 @@
     if (name === 'bases') { loadModels(); loadDocuments(); }
     if (name === 'models') loadModels();
     if (name === 'chat') retrievalControls.refresh(true);
+    if (name === 'mechanism') window.dispatchEvent(new Event('mechanism:open'));
   }
 
   function renderModels() {

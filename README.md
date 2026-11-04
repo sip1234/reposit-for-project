@@ -38,6 +38,8 @@ AI 助手和分块管理的检索验证现共用真实的关键词／向量／�
 
 AI 助手可创建多个知识库，每个知识库可以选择已保存但尚未解析的文件；提问时可同时选择多个知识库。后端只检索所选知识库中已解析完成的文件，按文件实际选用的 embedding 模型分别计算问题向量。未加入任何知识库的文件不会进入问答。回答由当前启用的 LLM 生成并显示引用，默认使用本地 `qwen3:4b-instruct`；请核对下方原文。
 
+AI 助手另有独立的“机理校验问答”分页：选择知识库、设置 BSM1 工况、输入待核对数值及其单位和统计时间窗，后台先检索资料并运行仿真，再以固定规则生成校验卡片和带出处的解释。支持指标、比较阈值、操作步骤和适用边界见 [机理校验问答](docs/mechanism-qa.md)。
+
 ### 模型管理
 
 在 AI 助手的“模型管理”分页添加、编辑和切换模型。LLM 可使用 Ollama 或 DeepSeek，embedding 当前使用 Ollama。添加 Ollama 模型前先通过 `docker compose exec ollama ollama pull <模型名>` 下载；保存 embedding 模型时会调用一次本地 embedding 接口以确定向量维度。DeepSeek 可添加 `deepseek-flash` 或 `deepseek-v4-pro`，需要在页面输入 API 密钥；密钥经 AES-256-GCM 加密保存在 PostgreSQL，界面和列表接口不会回显。加密密钥由本地 `.env` 的 `HOOK_TOKEN` 派生，迁移数据库时应同时保留该值。
